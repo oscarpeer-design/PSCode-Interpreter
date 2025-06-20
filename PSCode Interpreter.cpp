@@ -262,32 +262,21 @@ public:
         return false;
     }
 
-    Token getToken(string element) {
-        Token t = Token::Literal;
-        bool match = false;
-        cout << "The lexeme is " + element + "\n";
-        auto it = this->tokenMap.find(element);
-        if (it != tokenMap.end()) { //if there is a match
-            match = true;
-            t = it->second;
+    Token getToken(const string& element) {
+        auto it = tokenMap.find(element);
+        if (it != tokenMap.end()) {
+            return it->second;
         }
-
-        if (!match) {
-            if (isLiteral(element)) {
-                match = true;
-            }
-            else if (isValidVariable(element)) {
-                match = true;
-                t = Token::Variable;
-            }
-            else {
-                string msg = "An unexpected token was found.";
-                raiseException(msg);
-            }
+        if (isLiteral(element)) {
+            return Token::Literal;
         }
-
-        return t;
+        if (isValidVariable(element)) {
+            return Token::Variable;
+        }
+        raiseException("An unexpected token was found: " + element);
+        return Token::Literal; // Default fallback
     }
+
 
     string removeNewline(string line) {
         string chopped = line;
@@ -312,84 +301,56 @@ public:
 
     vector<string> chopIntoLexemes(string line) {
         vector<string> lexemes;
+        size_t i = 0, n = line.length();
+        while (i < n) {
+            // Skip spaces
+            while (i < n && isspace(line[i])) i++;
+            if (i >= n) break;
 
-        int i = 0;
-        int count = 0;
-        int start = 0;
-        bool spaceOrEnd = false;
-        bool lexemeFound = false;
-        size_t maxI = line.length() - 1;
-        bool done = (maxI < 0);
-        while (!done) {
-            spaceOrEnd = isSpace_orEnd(line[i], i, maxI);
-            if (!spaceOrEnd && !lexemeFound) { //if character is not last/the end of the line, && lexeme has not been found
-                lexemeFound = true;
-                start = i; //start counting
-                count = 1;
+            // Handle quoted strings
+            if (line[i] == '"') {
+                size_t start = i++;
+                while (i < n && line[i] != '"') i++;
+                if (i < n) i++; // Include closing quote
+                lexemes.push_back(line.substr(start, i - start));
             }
-            else if (!spaceOrEnd && lexemeFound) { // if lexeme has been found && character can be included
-                count++; //count character in lexeme substring
+            // Handle multi-char operators (e.g., >=, <=, <>, END IF)
+            else if (i + 1 < n && (line.substr(i, 2) == ">=" || line.substr(i, 2) == "<=" || line.substr(i, 2) == "<>")) {
+                lexemes.push_back(line.substr(i, 2));
+                i += 2;
             }
-            else if (spaceOrEnd && lexemeFound) {
-                lexemes.push_back(line.substr(start, count + 1)); //add substring from start, moving forward <count> indexes
-                //reset values
-                lexemeFound = false;
-                count = 0;
+            // Handle single-char tokens
+            else if (ispunct(line[i])) {
+                lexemes.push_back(string(1, line[i]));
+                i++;
             }
-            i++;
-            done = !(i <= maxI);
+            // Handle words (identifiers, keywords)
+            else {
+                size_t start = i;
+                while (i < n && !isspace(line[i]) && !ispunct(line[i])) i++;
+                lexemes.push_back(line.substr(start, i - start));
+            }
         }
-
         return lexemes;
     }
 
-    vector<string> revisedLexemes(vector<string> lexemes) {
-        //combine lexemes to get ENDIF, ELSEIF, ENDWHILE
-        vector<string> revisedLexemes;
 
-
-        size_t s = lexemes.size();
-
-        if (s < 2) {
-            return lexemes;
-        }
-
-        int idx = 0;
-        string first = "";
-        string second = "";
-        string revisedString = "";
-        bool combination = false;
-        bool validSize = (lexemes.size() > 2);
-
-        while (validSize && idx < lexemes.size() - 1) {
-            first = lexemes[idx];
-            second = lexemes[idx + 1];
-            if (first == "END") {
-                if (second == "IF" || second == "WHILE") {
-                    combination = true;
-                    revisedString = first + " " + second;
+    vector<string> revisedLexemes(const vector<string>& lexemes) {
+        vector<string> revised;
+        size_t i = 0;
+        while (i < lexemes.size()) {
+            if (i + 1 < lexemes.size()) {
+                string combined = lexemes[i] + " " + lexemes[i + 1];
+                if (combined == "END IF" || combined == "ELSE IF" || combined == "END WHILE") {
+                    revised.push_back(combined);
+                    i += 2;
+                    continue;
                 }
             }
-            else if (first == "ELSE" && second == "IF") {
-                combination = true;
-                revisedString = first + " " + second;
-            }
-            else {
-                combination = false;
-                revisedString = first;
-            }
-            revisedLexemes.push_back(revisedString);
-            idx++;
+            revised.push_back(lexemes[i]);
+            i++;
         }
-        if (!combination && validSize) {
-            revisedLexemes.push_back(second); //add last lexeme if the last 2 lexemes don't match up
-        }
-
-        if (!validSize) {
-            revisedLexemes = lexemes;
-        }
-
-        return revisedLexemes;
+        return revised;
     }
 
     void printLexemes(vector<string> lexemes) {
@@ -407,15 +368,15 @@ public:
         vector<TokenInstance> tokens;
         vector<string> lexemes;
         string line = this->line;
-        cout << "Tokenizing" << endl;
+        //cout << "Tokenizing" << endl;
         line = removeNewline(line); //remove newline characters
-        cout << "Without newline: " + line << endl;
+        //cout << "Without newline: " + line << endl;
         lexemes = chopIntoLexemes(line); //break line into substrings based on spaces
-        cout << "Chopped into lexemes...\n";
-        printLexemes(lexemes);
-        cout << "Revised lexemes...\n";
+        //cout << "Chopped into lexemes...\n";
+        //printLexemes(lexemes);
+        //cout << "Revised lexemes...\n";
         lexemes = revisedLexemes(lexemes);//edit those substrings for tokens like ELSEIF, ENDIF, ENDWHILE, ect
-        printLexemes(lexemes);
+        //printLexemes(lexemes);
 
         Token t = Token::Literal;
 
@@ -976,7 +937,7 @@ private:
     bool isFinalLine = false;
     ExceptionType exType = ExceptionType::Syntactical;
     vector<TokenInstance> tokens; // Use a dynamic vector instead of a fixed-size array to store the tokens 
-    //size_t numTokens = tokens.size();
+    //size_t numTokens = tokens.size;
 
 public:
     Parser() : statement(nullptr) {}
@@ -1374,32 +1335,40 @@ public:
         return valid;
     }
 
-    Branch* parseBranch(bool isElseBranch, vector<TokenInstance> headerTokens) {
+    Branch* parseBranch(bool isElseBranch, const vector<TokenInstance>& headerTokens, BranchNode* parentNode = nullptr) {
+        cout << "parseBranch: next token is " << interpreter.getTokenString(tokens[0].type) << " (" << tokens[0].lexeme << ")" << endl;
         ConditionalStatement cond;
         if (!isElseBranch) {
-            cond = parseConditionalStatement(headerTokens);
+            size_t start = 1;
+            size_t end = headerTokens.size();
+            if (headerTokens.back().type == Token::THEN) end--;
+            vector<TokenInstance> condTokens(headerTokens.begin() + start, headerTokens.begin() + end);
+            cond = parseConditionalStatement(condTokens);
         }
         vector<Statement*> statements;
         bool done = false;
         while (!done && !isFinalLine && validSyntax) {
-            generateNewTokens();
-            if (tokens.empty()) continue;
+            if (tokens.empty()) {
+                generateNewTokens();
+                if (tokens.empty()) continue;
+            }
+            cout << "parseIfStatement: lookahead token is " << interpreter.getTokenString(tokens[0].type) << " (" << tokens[0].lexeme << ")" << endl;
             Token t = tokens[0].type;
             if (t == Token::IF) {
-                // Nested IF
-                BranchNode* nestedIf = parseIfStatement();
-                // Attach to last statement or handle as needed
-                // (You may want to wrap this in a Statement* for uniformity)
-                statements.push_back(new IFStatement(nestedIf));
+                BranchNode* nestedIfNode = parseIfStatement();
+                IFStatement* nestedIfStatement = new IFStatement(nestedIfNode);
+                statements.push_back(nestedIfStatement);
+                statement = nullptr;
+                generateNewTokens();
             }
             else if (t == Token::ELSEIF || t == Token::ELSE || t == Token::ENDIF) {
-                done = true; // Let parent handle these
+                done = true;
             }
             else {
-                // Regular statement
                 parseExpression();
                 if (statement) statements.push_back(statement);
                 statement = nullptr;
+                generateNewTokens();
             }
             checkFinalLine();
         }
@@ -1407,35 +1376,45 @@ public:
     }
 
     BranchNode* parseIfStatement() {
-        // Assume tokens are set for the IF/ELSE IF/ELSE header
+        cout << "parseIfStatement: lookahead token is " << interpreter.getTokenString(tokens[0].type) << " (" << tokens[0].lexeme << ")" << endl;
         bool isElse = tokens[0].type == Token::ELSE;
         vector<TokenInstance> headerTokens = this->tokens;
+        generateNewTokens(); // <-- Advance to the first line of the branch body!
         BranchNode* node = new BranchNode();
         node->isElseBranch = isElse;
-        node->current = parseBranch(isElse, headerTokens);
+        node->current = parseBranch(isElse, headerTokens, node);
 
         // Now look ahead for ELSE IF, ELSE, or END IF
+        BranchNode* lastNode = node;
         bool done = false;
         while (!isFinalLine && !done && validSyntax) {
-            generateNewTokens();
-            if (tokens.empty()) continue;
+            if (tokens.empty()) {
+                generateNewTokens();
+                if (tokens.empty()) continue;
+            }
+            cout << "parseIfStatement: lookahead token is " << interpreter.getTokenString(tokens[0].type) << " (" << tokens[0].lexeme << ")" << endl;
             Token t = tokens[0].type;
+
             if (t == Token::ELSEIF || t == Token::ELSE) {
-                node->nextBranch = parseIfStatement();
+                lastNode->nextBranch = parseIfStatement();
                 done = true;
             }
             else if (t == Token::ENDIF) {
                 done = true;
             }
             else {
-                //An unexpected token has been found. This should not happen as parseBranch should have consumed all statements.
                 string name = getBranchName(t);
                 raiseException("Unexpected token found after " + name + " branch.");
+            }
+            // Only advance tokens if you expect to process the next branch
+            if (!done) {
+                generateNewTokens();
             }
             checkFinalLine();
         }
         return node;
     }
+
 
 
     void forLoop() {
