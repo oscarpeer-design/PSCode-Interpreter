@@ -1341,9 +1341,14 @@ public:
         if (!isElseBranch) {
             size_t start = 1;
             size_t end = headerTokens.size();
-            if (headerTokens.back().type == Token::THEN) end--;
-            vector<TokenInstance> condTokens(headerTokens.begin() + start, headerTokens.begin() + end);
-            cond = parseConditionalStatement(condTokens);
+            if (headerTokens.back().type == Token::THEN) {
+                end--;
+                vector<TokenInstance> condTokens(headerTokens.begin() + start, headerTokens.begin() + end);
+                cond = parseConditionalStatement(condTokens);
+            }
+            else {
+                raiseException("Expected a THEN keyword.");
+            }
         }
         vector<Statement*> statements;
         bool done = false;
@@ -1412,6 +1417,16 @@ public:
             }
             checkFinalLine();
         }
+
+        if (!done && isFinalLine) {
+            if (!tokens.empty() && tokens[0].type == Token::ENDIF) {
+                done = true;
+            }
+            else {
+                raiseException("Missing an END IF for the above IF statement.");
+            }
+        }
+
         return node;
     }
 
@@ -1800,25 +1815,21 @@ public:
     }
 
     void testInterpreter(vector<string> lines) {
-        vector<TokenInstance> tokens;
-        Lexer lexer;
-        Parser parser;
-        for (auto& line : lines) {
-            lexer.setLine(line);
-            tokens = lexer.tokenizeLine();
-            parser.setNewTokens(tokens);
-            parser.parseExpression();
-        }
+        interpreter.setLines(lines);
+        vector<TokenInstance> tokens = interpreter.getNewTokens();
+        interpreter.printTokens(tokens);
+        Parser p(tokens);
+        p.parseExpression();
     }
 
-    void ifStatement_validShort() {
+    void ifStatement_valid_Short() { // passes (works)
         vector<string> lines = {
             "IF var > 1 THEN",
                 "var = var + 1",
             "END IF" };
-
+        testInterpreter(lines);
     }
-    void ifStatement_validLonger() {
+    void ifStatement_valid_Longer() { // passes (works)
         vector<string> lines = {
             "IF var > 1 THEN",
                 "var = var + 1",
@@ -1827,10 +1838,20 @@ public:
             "ELSE",
                 "var = 0",
             "END IF" };
-
+        testInterpreter(lines);
     }
 
-    void ifStatement_validLonger_nesting() {
+    void ifStatement_valid_Longer_MissingStatement() { // passes (works)
+        vector<string> lines = {
+            "IF var > 1 THEN",
+                "var = var + 1",
+            "ELSE IF var > 0 AND var < 1 THEN",
+            "ELSE",
+            "END IF" };
+        testInterpreter(lines);
+    }
+
+    void ifStatement_valid_Longer_Nested() { // passes (works)
         vector<string> lines = {
             "IF var > 1 THEN",
                 "var = var + 1",
@@ -1841,7 +1862,106 @@ public:
             "ELSE",
                 "var = 0",
             "END IF" };
+        testInterpreter(lines);
+    }
 
+    void ifStatement_invalid_Short_InvalidEqualityOperand() { // passes (fails as expected)
+        vector<string> lines = {
+            "IF var is 1 THEN",
+                "var = var + 1",
+            "END IF" };
+        testInterpreter(lines);
+    }
+
+    void ifStatement_invalid_Longer_InvalidEqualityOperand() { // passes (fails as expected)
+        vector<string> lines = {
+            "IF var > 1 THEN",
+                "var = var + 1",
+            "ELSE IF var > 0 AND var != 1 THEN",
+                "var = var - 1",
+            "ELSE",
+                "var = 0",
+            "END IF" };
+        testInterpreter(lines);
+    }
+
+    void ifStatement_invalid_Longer_Nested_InvalidEqualityOperand() { // passes (fails as expected)
+        vector<string> lines = {
+            "IF var > 1 THEN",
+                "var = var + 1",
+            "ELSE IF var > 0 AND var < 1 THEN",
+                "IF x != var THEN",
+                    "var = x - 1",
+                "END IF",
+            "ELSE",
+                "var = 0",
+            "END IF" };
+        testInterpreter(lines);
+    }
+
+    void ifStatement_invalid_Short_MissingENDIF() { // passes (fails as expected)
+        vector<string> lines = {
+            "IF var is 1 THEN",
+                "var = var + 1" };
+        testInterpreter(lines);
+    }
+
+    void ifStatement_invalid_Longer_MissingENDIF() { // passes (fails as expected)
+        vector<string> lines = {
+            "IF var > 1 THEN",
+                "var = var + 1",
+            "ELSE IF var > 0 AND var < 1 THEN",
+                "var = var - 1",
+            "ELSE",
+                "var = 0" };
+        testInterpreter(lines);
+    }
+
+    void ifStatement_invalid_Nested_MissingENDIF() { // passes (fails as expected)
+        vector<string> lines = {
+            "IF var > 1 THEN",
+                "var = var + 1",
+            "ELSE IF var > 0 AND var < 1 THEN",
+                "IF x = var THEN",
+                    "var = x - 1",
+            "ELSE",
+                "var = 0",
+            "END IF" };
+        testInterpreter(lines);
+    }
+
+    void ifStatement_invalid_Short_MissingTHEN() { // passes (fails as expected)
+        vector<string> lines = {
+            "IF var is 1 THEN",
+                "var = var + 1",
+            "END IF" };
+        testInterpreter(lines);
+    }
+
+    void ifStatement_invalid_Longer_MissingTHEN() { // passes (fails as expected)
+        vector<string> lines = {
+            "IF var > 1 THEN",
+                "var = var + 1",
+            "ELSE IF var > 0 AND var < 1",
+                "var = var - 1",
+            "ELSE",
+                "var = 0",
+            "END IF" };
+        testInterpreter(lines);
+    }
+
+    void ifStatement_invalid_Nested_MissingTHEN() { // passes (fails as expected)
+        vector<string> lines = {
+            "IF var > 1 THEN",
+                "var = var + 1",
+            "ELSE IF var > 0 AND var < 1 THEN",
+                "IF x = var",
+                    "var = x - 1",
+                "END IF",
+            "ELSE",
+                "var = 0",
+            "END IF" };
+        testInterpreter(lines);
     }
 
 };
@@ -1849,25 +1969,8 @@ public:
 Interpreter interpreter; // Definition of the global variable
 
 int main() {
-    /*Test test = Test();
-    test.outputStatement_valid();*/
-    vector<string> lines = {
-            "IF var > 1 THEN",
-                "var = var + 1",
-            "ELSE IF var > 0 AND var < 1 THEN",
-                "IF x = var THEN",
-                    "var = x - 1",
-                "END IF",
-            "ELSE",
-                "var = 0",
-            "END IF" };
-
-    interpreter.setLines(lines);
-    vector<TokenInstance> tokens = interpreter.getNewTokens();
-    interpreter.printTokens(tokens);
-
-    Parser p(tokens);
-    p.parseExpression();
+    Test test = Test();
+    test.ifStatement_valid_Short();
 
     return 0;
 }
