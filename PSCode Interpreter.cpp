@@ -742,11 +742,24 @@ public:
 };
 
 
-class Loop : public BranchNode {
+class WhileLoop : public Statement {
+private:
+    Branch* branch;
+public:
 
-};
+    WhileLoop() = default;
 
-class WhileLoop : public Loop {
+    WhileLoop(Branch* branch) {
+        this->branch = branch;
+    }
+
+    ~WhileLoop() override {
+        delete branch;
+    }
+
+    void execute() override {
+
+    }
 
 };
 
@@ -998,7 +1011,9 @@ public:
             break;
         case Token::WHILE:
             this->statType = StatementType::WhileLoop;
-            whileLoop();
+            Branch* whileBranch = parseWhileLoop();
+            WhileLoop* whileLoopStatement = new WhileLoop();
+            this->statement = whileLoopStatement;
             break;
         default:
             break;
@@ -1335,8 +1350,61 @@ public:
         return valid;
     }
 
-    Branch* parseBranch(bool isElseBranch, const vector<TokenInstance>& headerTokens, BranchNode* parentNode = nullptr) {
-        cout << "parseBranch: next token is " << interpreter.getTokenString(tokens[0].type) << " (" << tokens[0].lexeme << ")" << endl;
+    Branch* parseWHILEBranch(const vector<TokenInstance>& headerTokens) {
+        ConditionalStatement cond;
+        size_t start = 1;
+        size_t end = headerTokens.size();
+        vector<TokenInstance> conditionTokens(headerTokens.begin() + start, headerTokens.begin() + end);
+        cond = parseConditionalStatement(conditionTokens);
+        vector<Statement*> statements;
+        bool done = false;
+        Token t = Token::Literal;
+        while (!done && !isFinalLine && validSyntax) {
+            if (tokens.empty()) {
+                generateNewTokens();
+                if (tokens.empty()) continue;
+            }
+            t = tokens[0].type;
+            if (t == Token::IF) {
+                BranchNode* nestedIfNode = parseIfStatement();
+                IFStatement* nestedIfStatement = new IFStatement(nestedIfNode);
+                statements.push_back(nestedIfStatement);
+                statement = nullptr;
+                generateNewTokens();
+            }
+            else if (t == Token::WHILE) {
+                Branch* nestedWhile = parseWhileLoop();
+                statements.push_back(nestedWhile);
+                statement = nullptr;
+                generateNewTokens();
+            }
+            else if (t == Token::ENDWHILE) {
+                done = true;
+                generateNewTokens();
+            }
+            else {
+                parseExpression();
+                if (statement) statements.push_back(statement);
+                statement = nullptr;
+                generateNewTokens();
+            }
+            checkFinalLine();
+        }
+
+        if (!done && isFinalLine) {
+            if (!tokens.empty() && tokens[0].type == Token::ENDWHILE) {
+                done = true;
+            }
+            else {
+                raiseException("Missing an END WHILE for the above WHILE loop.");
+            }
+        }
+
+        return new Branch(cond, statements);
+    }
+
+    Branch* parseIFBranch(bool isElseBranch, const vector<TokenInstance>& headerTokens, BranchNode* parentNode = nullptr) {
+        //cout << "parseBranch: next token is " << interpreter.getTokenString(tokens[0].type) << " (" << tokens[0].lexeme << ")" << endl; //debugging output statement
         ConditionalStatement cond;
         if (!isElseBranch) {
             size_t start = 1;
@@ -1357,7 +1425,7 @@ public:
                 generateNewTokens();
                 if (tokens.empty()) continue;
             }
-            cout << "parseIfStatement: lookahead token is " << interpreter.getTokenString(tokens[0].type) << " (" << tokens[0].lexeme << ")" << endl;
+            //cout << "parseIfStatement: lookahead token is " << interpreter.getTokenString(tokens[0].type) << " (" << tokens[0].lexeme << ")" << endl; //debugging output statement
             Token t = tokens[0].type;
             if (t == Token::IF) {
                 BranchNode* nestedIfNode = parseIfStatement();
@@ -1377,17 +1445,18 @@ public:
             }
             checkFinalLine();
         }
+
         return new Branch(cond, statements);
     }
 
     BranchNode* parseIfStatement() {
-        cout << "parseIfStatement: lookahead token is " << interpreter.getTokenString(tokens[0].type) << " (" << tokens[0].lexeme << ")" << endl;
+        //cout << "parseIfStatement: lookahead token is " << interpreter.getTokenString(tokens[0].type) << " (" << tokens[0].lexeme << ")" << endl; //debugging output statement
         bool isElse = tokens[0].type == Token::ELSE;
         vector<TokenInstance> headerTokens = this->tokens;
         generateNewTokens(); // <-- Advance to the first line of the branch body!
         BranchNode* node = new BranchNode();
         node->isElseBranch = isElse;
-        node->current = parseBranch(isElse, headerTokens, node);
+        node->current = parseIFBranch(isElse, headerTokens, node);
 
         // Now look ahead for ELSE IF, ELSE, or END IF
         BranchNode* lastNode = node;
@@ -1397,7 +1466,7 @@ public:
                 generateNewTokens();
                 if (tokens.empty()) continue;
             }
-            cout << "parseIfStatement: lookahead token is " << interpreter.getTokenString(tokens[0].type) << " (" << tokens[0].lexeme << ")" << endl;
+            //cout << "parseIfStatement: lookahead token is " << interpreter.getTokenString(tokens[0].type) << " (" << tokens[0].lexeme << ")" << endl; //debugging output statement
             Token t = tokens[0].type;
 
             if (t == Token::ELSEIF || t == Token::ELSE) {
@@ -1443,11 +1512,15 @@ public:
         //postcondition: NEXT expected
     }
 
-    void whileLoop() {
+    Branch* parseWhileLoop() {
         //while-loop
         //EBNF: WHILE <condition> 
         //precondition: tokens[0] == WHILE
-        //postcondition: ENDWHILE expected 
+        //postcondition: ENDWHILE expected
+        vector<TokenInstance> headerTokens = this->tokens;
+        Branch* branch = parseWHILEBranch(headerTokens);
+
+        return branch;
     }
 
     void variableExpression() {
@@ -1817,7 +1890,7 @@ public:
     void testInterpreter(vector<string> lines) {
         interpreter.setLines(lines);
         vector<TokenInstance> tokens = interpreter.getNewTokens();
-        interpreter.printTokens(tokens);
+        //interpreter.printTokens(tokens);
         Parser p(tokens);
         p.parseExpression();
     }
@@ -1970,7 +2043,7 @@ Interpreter interpreter; // Definition of the global variable
 
 int main() {
     Test test = Test();
-    test.ifStatement_valid_Short();
+    //test.ifStatement_valid_Short();
 
     return 0;
 }
