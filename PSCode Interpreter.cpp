@@ -5,6 +5,7 @@
 #include <vector>
 #include <unordered_map>
 #include <cctype>
+#include <climits>
 #include <exception>
 //#include <variant>
 using namespace std; //This makes outputting to the console require less lines
@@ -401,6 +402,10 @@ public:
     virtual ~Statement() {}
     virtual void printValues() {}
     virtual void execute() {} //generic -> runs statement
+    virtual void raiseRuntimeException(string msg) {
+        Exception ex(msg, ExceptionType::Runtime);
+    }
+
     Statement() {}
 };
 
@@ -745,20 +750,42 @@ public:
 class WhileLoop : public Statement {
 private:
     Branch* branch;
+    int repetitionCount = 0;
+
+    void executeWhileLoop() {
+        bool cond = false;
+        cond = branch->evaluateCondition();
+        int maxValue = 32768;
+        while (cond) {
+            
+            branch->executeStatements();
+            cond = branch->evaluateCondition();
+            repetitionCount++;
+            if (repetitionCount >= maxValue) { //smallest maximum integer value
+                raiseRuntimeException("Maximum number of repetitions exceeded. You may have created an infinite loop here.");
+                break;
+            }
+        }
+    }
+
 public:
 
-    WhileLoop() = default;
+    WhileLoop() : branch(nullptr), repetitionCount(0) {} //default constructor initialising attributes
 
     WhileLoop(Branch* branch) {
         this->branch = branch;
+        this->repetitionCount = 0;
     }
 
     ~WhileLoop() override {
         delete branch;
+        branch = nullptr;
     }
 
     void execute() override {
-
+        if (branch != nullptr) {
+            executeWhileLoop();
+        } 
     }
 
 };
@@ -1274,7 +1301,7 @@ public:
             name = "ElSE IF";
         }
         else if (t == Token::ELSE) {
-            name = "ElSE";
+            name = "ELSE";
         }
         return name;
     }
@@ -2037,12 +2064,121 @@ public:
         testInterpreter(lines);
     }
 
+    void whileLoop_valid_Short() {
+        vector<string> lines = {
+        "WHILE x < 0",
+            "x = x - 1",
+        "END WHILE"
+        };
+        testInterpreter(lines);
+    }
+
+    void whileLoop_valid_Long() {
+        vector<string> lines = {
+        "WHILE x > -1",
+            "x = x - 1",
+            "IF var > 1 THEN",
+                "var = var + 1",
+            "ELSE IF var > 0 AND var < 1",
+                "var = var - 1",
+            "ELSE",
+                "var = 0",
+            "END IF",
+        "END WHILE"};
+        testInterpreter(lines);
+    }
+
+    void whileLoop_valid_MissingStatements() {
+        vector<string> lines = {
+        "WHILE x > -1",
+        "END WHILE" };
+        testInterpreter(lines);
+    }
+
+    void whileLoop_valid_nestedLoop() {
+        vector<string> lines = {
+        "WHILE x > -1",
+           "x = x - 1",
+           "IF var > 1 THEN",
+               "var = var - 1",
+           "END IF",
+           "WHILE var < 10"
+                "var = var + 2",
+           "END WHILE",
+        "END WHILE" };
+        testInterpreter(lines);
+    }
+
+    void whileLoop_invalid_InvalidEqualityOperator() {
+        vector<string> lines = {
+        "WHILE x != -1",
+            "x = x - 1",
+            "IF var > 1 THEN",
+                "var = var + 1",
+            "ELSE IF var > 0 AND var < 1",
+                "var = var - 1",
+            "ELSE",
+                "var = 0",
+            "END IF",
+        "END WHILE" };
+        testInterpreter(lines);
+    }
+
+    void whileLoop_invalid_InvalidRandomToken() {
+        vector<string> lines = {
+        "WHILE x 1 = -1",
+            "x = x - 1",
+            "IF var > 1 THEN",
+                "var = var + 1",
+            "ELSE IF var > 0 AND var < 1",
+                "var = var - 1",
+            "ELSE",
+                "var = 0",
+            "END IF",
+        "END WHILE" };
+        testInterpreter(lines);
+    }
+
+    void whileLoop_invalid_MissingENDWHILE() {
+        vector<string> lines = {
+        "WHILE x 1 = -1",
+            "x = x - 1",
+            "IF var > 10 THEN",
+                "var = var + 1",
+            "ELSE IF var > 5 AND var < 10",
+                "var = var - 1",
+            "ELSE",
+                "var = x",
+            "END IF"
+        };
+        testInterpreter(lines);
+    }
+
+    void whileLoop_invalid_Nested_MissingENDWHILE() {
+        vector<string> lines = {
+        "WHILE x > -1",
+            "x = x - 1",
+            "IF var > 10 THEN",
+            "var = var + 1",
+            "ELSE IF var > 5 AND var < 10",
+            "var = var - 1",
+            "ELSE",
+            "var = x",
+            "END IF",
+            "WHILE var > 0",
+                "var = x - 2",
+                "y = var * -2",
+        "END WHILE"
+    };
+    testInterpreter(lines);
+    }
+
 };
 
 Interpreter interpreter; // Definition of the global variable
 
 int main() {
-    Test test = Test();
+    Test test;
     //test.ifStatement_valid_Short();
 
     return 0;
