@@ -199,7 +199,7 @@ public:
         this->line = line;
     }
 
-    bool tokensValid() {
+    bool tokensValid() const {
         return this->validToken;
     }
 
@@ -403,7 +403,7 @@ public:
     virtual void printValues() {}
     virtual void execute() {} //generic -> runs statement
     virtual void raiseRuntimeException(string msg) {
-        Exception ex(msg, ExceptionType::Runtime);
+        Exception ex(ExceptionType::Runtime, msg);
     }
 
     Statement() {}
@@ -757,7 +757,7 @@ private:
         cond = branch->evaluateCondition();
         int maxValue = 32768;
         while (cond) {
-            
+
             branch->executeStatements();
             cond = branch->evaluateCondition();
             repetitionCount++;
@@ -785,7 +785,7 @@ public:
     void execute() override {
         if (branch != nullptr) {
             executeWhileLoop();
-        } 
+        }
     }
 
 };
@@ -845,16 +845,26 @@ public:
         this->outputFilename = outputFilename;
     }
 
+    int getLineNum() {
+        return this->currentLineNum;
+    }
+
     void setLines(vector<string> lines) {
         this->lines = lines;
+    }
+
+    void resetLineNum() {
+        this->currentLineNum = 0;
     }
 
     vector<TokenInstance> getNewTokens() {
         vector<TokenInstance> tokens;
         Lexer lexer;
         if (this->currentLineNum < this->lines.size()) {
+            cout << "Tokenizing line " << currentLineNum << ": "; //debugging output statement
             lexer.setLine(this->lines[currentLineNum]);
             tokens = lexer.tokenizeLine();
+            printTokens(tokens);
             currentLineNum++;
         }
         return tokens;
@@ -967,6 +977,15 @@ public:
         cout << endl;
     }
 
+    void printLexemes(vector<TokenInstance> tokens) {
+        string lexeme = "BEGIN";
+        for (TokenInstance token : tokens) {
+            lexeme = token.lexeme;
+            cout << lexeme + " ";
+        }
+        cout << endl;
+    }
+
 };
 
 class Parser {
@@ -998,6 +1017,7 @@ public:
     }
 
     void generateNewTokens() {
+        cout << "generating new tokens : line " << interpreter.getLineNum() << endl;
         this->tokens = interpreter.getNewTokens();
         //interpreter.printTokens(this->tokens);
     }
@@ -1036,12 +1056,18 @@ public:
             this->statType = StatementType::ForLoop;
             forLoop();
             break;
-        case Token::WHILE:
+        case Token::WHILE: {
             this->statType = StatementType::WhileLoop;
             Branch* whileBranch = parseWhileLoop();
-            WhileLoop* whileLoopStatement = new WhileLoop();
+            if (!whileBranch) {
+                // If parsing failed, do not create a WhileLoop statement
+                this->statement = nullptr;
+                break;
+            }
+            WhileLoop* whileLoopStatement = new WhileLoop(whileBranch);
             this->statement = whileLoopStatement;
             break;
+        }
         default:
             break;
             /*if (t != Token::BEGIN && t != Token::END) {
@@ -1231,15 +1257,9 @@ public:
         bool condition = false;
         if (conditionTokens.size() != 3) {
             //cout << "invalid length = " << conditionTokens.size() << endl;
-            return condition;
+            return false;
         }
-        if (isVariableORValue(conditionTokens[0].type) && checkEqualityOperand(conditionTokens[1]) && isVariableORValue(conditionTokens[2].type)) {
-            //cout << "valid syntax structure" << endl;
-            if (conditionTokens[0].lexeme != conditionTokens[2].lexeme) {
-                condition = true;
-            }
-        }
-        return condition;
+        return isVariableORValue(conditionTokens[0].type) && checkEqualityOperand(conditionTokens[1]) && isVariableORValue(conditionTokens[2].type);
     }
 
     Condition getCondition(vector<TokenInstance> conditionTokens) {
@@ -1248,37 +1268,25 @@ public:
         return c;
     }
 
-    vector<Condition> getConditions(vector<TokenInstance>tokens) {
+    vector<Condition> getConditions(vector<TokenInstance> tokens) {
+        cout << "getConditions: tokens = ";//debugging output statement
+        interpreter.printLexemes(tokens); //debugging output statement
         vector<Condition> conditions;
-        //This takes a conditional statement and extracts the conditions where a condition is <variable>|<value> <equality operator> <OTHER variable><value>
-        vector<TokenInstance>conditionTokens;
-        //bool expectedCondition = true;
-        bool validCondition = true;
-        string msg = "Invalid condition statement.";
-        size_t size = tokens.size();
-        size_t j;
-        size_t i = 2;
-        while (i < size && validCondition) {
-            j = i - 2;
-            conditionTokens.assign(tokens.begin() + j, tokens.begin() + i + 1);
-            //print out conditionTokens:
-            //cout << "Token at " << i << " is " << tokens[i].lexeme << endl;
-            //cout << conditionTokens[0].lexeme << " " << conditionTokens[1].lexeme << " " << conditionTokens[2].lexeme << endl;
-            validCondition = isCondition(conditionTokens);
-
-            if (validCondition) {
-                ;
-                conditions.push_back(getCondition(conditionTokens));
+        size_t i = 0;
+        while (i + 2 < tokens.size()) {
+            vector<TokenInstance> conditionTokens(tokens.begin() + i, tokens.begin() + i + 3);
+            //cout << "Checking conditionTokens: "; //debugging output statement
+            //interpreter.printTokens(conditionTokens);//debugging output statement
+            if (!isCondition(conditionTokens)) {
+                raiseException("Invalid condition statement.");
+                break;
             }
-
-            i += 4;
-        }
-        //if (expectedCondition) {
-        //    msg = "A conditional statement was expected.";
-        //    raiseException(msg);
-        //}
-        if (!validCondition) {
-            raiseException(msg);
+            conditions.push_back(getCondition(conditionTokens));
+            i += 3;
+            // Skip linker if present
+            if (i < tokens.size() && isConditionLinker(tokens[i])) {
+                i += 1;
+            }
         }
         return conditions;
     }
@@ -1307,40 +1315,24 @@ public:
     }
 
     vector<TokenInstance> getConditionLinkers(vector<TokenInstance> tokens) {
-        //This takes a conditional statement and gets the AND|OR values
-        vector<TokenInstance>conditionLinkers;
-        size_t size = tokens.size();
-        if (size > 3) {
-            bool expectedLinker = true;
-            bool isLinker;
-            bool expectedCondition = false;
-            size_t j = 3;
-            string msg = "Expected either an AND or an OR operator.";
-            //cout << "analysing linkers" << endl;
-            while (j < size) {
-                expectedLinker = true;
-                //cout << "Token at "  << j << " is " << tokens[j].lexeme << endl;
-
-                isLinker = isConditionLinker(tokens[j]);
-
-                if (isLinker) {
-                    conditionLinkers.push_back(tokens[j]);
-                    expectedLinker = false;
-                    expectedCondition = true;
-                }
-
-                if (j < size - 1) { //If the value after the AND|OR is a <variable>|<value>, we assume it is part of a condition, keeping in mind that the conditions have already been checked.
-                    //cout << "Token at " << j + 1 << " is " << tokens[j + 1].lexeme << endl;
-                    expectedCondition = !isVariableORValue(tokens[j + 1].type);
-                }
-                j += 4;
+        //cout << "getConditionLinkers: tokens = ";//debugging output statement
+        //interpreter.printTokens(tokens);//debugging output statement
+        vector<TokenInstance> conditionLinkers;
+        size_t i = 3;
+        while (i < tokens.size()) {
+            cout << "Checking for linker at i=" << i << ": [" << tokens[i].lexeme << "]" << endl; //debugging output statement
+            if (isConditionLinker(tokens[i])) {
+                conditionLinkers.push_back(tokens[i]);
+                i += 4; // Skip linker and next condition (3 tokens)
             }
-            if (expectedLinker) {
-                raiseException(msg);
+            else if (i == tokens.size()) {
+                //End of tokens, no linker expected
+                break;
             }
-            if (expectedCondition) {
-                msg = "A conditional statement was expected.";
-                raiseException(msg);
+            else {
+                // If not a linker where expected, raise exception
+                raiseException("Expected either an AND or an OR operator.");
+                break;
             }
         }
         return conditionLinkers;
@@ -1361,6 +1353,8 @@ public:
         vector<Condition> conditions = getConditions(tokens);
         vector<TokenInstance>conditionLinkers = getConditionLinkers(tokens);
         ConditionalStatement conditionStatement(conditions, conditionLinkers);
+        //cout <<"parseConditionalStatement: tokens = "; //debugging output statement
+        //interpreter.printTokens(tokens); //debugging output statement
         //IF EVERYTHING WORKS OUT, CREATE THE ConditionalStatement() object
         return conditionStatement;
     }
@@ -1378,6 +1372,13 @@ public:
     }
 
     Branch* parseWHILEBranch(const vector<TokenInstance>& headerTokens) {
+        checkFinalLine();//guard to prevent empty values from being parsed
+        if (tokens.empty() && isFinalLine) {
+            return nullptr;
+        }
+
+        cout << "parseWHILEBranch: headerTokens = "; //debugging output statement
+        interpreter.printLexemes(headerTokens);//debugging output statement
         ConditionalStatement cond;
         size_t start = 1;
         size_t end = headerTokens.size();
@@ -1386,14 +1387,29 @@ public:
         vector<Statement*> statements;
         bool done = false;
         Token t = Token::Literal;
+
+        //Advance to first line of the loop body
+        generateNewTokens();
+        checkFinalLine();
+
         while (!done && !isFinalLine && validSyntax) {
-            if (tokens.empty()) {
-                generateNewTokens();
+            if (tokens.empty()) { //If an empty line is passed
+                generateNewTokens(); //get the next line and check if it is empty
+                checkFinalLine();
+                // If we reach the end of input and the loop lacks an END WHILE, raise an exception and break
+                if (tokens.empty() && isFinalLine) {
+                    raiseException("Missing an END WHILE for the above WHILE loop.");
+                    return nullptr; //exit the method
+                }
                 if (tokens.empty()) continue;
             }
             t = tokens[0].type;
             if (t == Token::IF) {
                 BranchNode* nestedIfNode = parseIfStatement();
+                if (!nestedIfNode) {
+                    //Stop parsing if the nested IF is invalid
+                    return nullptr;
+                }
                 IFStatement* nestedIfStatement = new IFStatement(nestedIfNode);
                 statements.push_back(nestedIfStatement);
                 statement = nullptr;
@@ -1401,7 +1417,12 @@ public:
             }
             else if (t == Token::WHILE) {
                 Branch* nestedWhile = parseWhileLoop();
-                statements.push_back(nestedWhile);
+                if (!nestedWhile) {
+                    //Stop parsing the branch if nested WHILE is invalid
+                    return nullptr;
+                }
+                WhileLoop* whileLoopStatement = new WhileLoop(nestedWhile);
+                statements.push_back(whileLoopStatement);
                 statement = nullptr;
                 generateNewTokens();
             }
@@ -1418,15 +1439,12 @@ public:
             checkFinalLine();
         }
 
-        if (!done && isFinalLine) {
-            if (!tokens.empty() && tokens[0].type == Token::ENDWHILE) {
-                done = true;
-            }
-            else {
-                raiseException("Missing an END WHILE for the above WHILE loop.");
-            }
+        if (!done && isFinalLine) { //checking for missing END WHILE at end of method
+            raiseException("Missing an END WHILE for the above WHILE loop.");
+            return nullptr;
         }
 
+        if (!validSyntax) return nullptr;
         return new Branch(cond, statements);
     }
 
@@ -1475,6 +1493,7 @@ public:
 
         return new Branch(cond, statements);
     }
+
 
     BranchNode* parseIfStatement() {
         //cout << "parseIfStatement: lookahead token is " << interpreter.getTokenString(tokens[0].type) << " (" << tokens[0].lexeme << ")" << endl; //debugging output statement
@@ -1540,6 +1559,10 @@ public:
     }
 
     Branch* parseWhileLoop() {
+        checkFinalLine(); //defensive guard to prevent infinite recursion
+        if (tokens.empty() && isFinalLine) {
+            return nullptr;
+        }
         //while-loop
         //EBNF: WHILE <condition> 
         //precondition: tokens[0] == WHILE
@@ -1916,8 +1939,10 @@ public:
 
     void testInterpreter(vector<string> lines) {
         interpreter.setLines(lines);
+        interpreter.resetLineNum();
         vector<TokenInstance> tokens = interpreter.getNewTokens();
-        //interpreter.printTokens(tokens);
+        cout << "testInterpreter: first tokens = "; //debugging output statement
+        interpreter.printLexemes(tokens); //debugging output statement
         Parser p(tokens);
         p.parseExpression();
     }
@@ -2063,11 +2088,12 @@ public:
             "END IF" };
         testInterpreter(lines);
     }
-
+    //N.B. Change these conditions to include negative numbers
     void whileLoop_valid_Short() {
         vector<string> lines = {
         "WHILE x < 0",
             "x = x - 1",
+            "y = y + 2",
         "END WHILE"
         };
         testInterpreter(lines);
@@ -2075,37 +2101,57 @@ public:
 
     void whileLoop_valid_Long() {
         vector<string> lines = {
-        "WHILE x > -1",
+        "WHILE x > 0",
             "x = x - 1",
-            "IF var > 1 THEN",
+            "IF var > 1 AND var < 2 THEN",
                 "var = var + 1",
             "ELSE IF var > 0 AND var < 1",
                 "var = var - 1",
             "ELSE",
                 "var = 0",
             "END IF",
-        "END WHILE"};
+        "END WHILE" };
         testInterpreter(lines);
     }
 
     void whileLoop_valid_MissingStatements() {
         vector<string> lines = {
-        "WHILE x > -1",
+        "WHILE x = 1",
         "END WHILE" };
         testInterpreter(lines);
     }
 
     void whileLoop_valid_nestedLoop() {
         vector<string> lines = {
-        "WHILE x > -1",
+        "WHILE x > 1",
            "x = x - 1",
            "IF var > 1 THEN",
                "var = var - 1",
            "END IF",
-           "WHILE var < 10"
+           "WHILE var < 10",
                 "var = var + 2",
            "END WHILE",
         "END WHILE" };
+        testInterpreter(lines);
+    }
+
+    void whileLoop_valid_BlankLines() {
+        vector<string> lines = {
+            "WHILE x < 10",
+            "",
+            "",
+            "END WHILE"
+        };
+        testInterpreter(lines);
+    }
+
+    void whileLoop_invalid_ExtraEndWhile() {
+        vector<string> lines = {
+            "WHILE x > 0",
+            "x = x - 1",
+            "END WHILE",
+            "END WHILE"
+        };
         testInterpreter(lines);
     }
 
@@ -2126,7 +2172,7 @@ public:
 
     void whileLoop_invalid_InvalidRandomToken() {
         vector<string> lines = {
-        "WHILE x 1 = -1",
+        "WHILE x 1 = 10",
             "x = x - 1",
             "IF var > 1 THEN",
                 "var = var + 1",
@@ -2141,11 +2187,11 @@ public:
 
     void whileLoop_invalid_MissingENDWHILE() {
         vector<string> lines = {
-        "WHILE x 1 = -1",
+        "WHILE x > 1",
             "x = x - 1",
             "IF var > 10 THEN",
                 "var = var + 1",
-            "ELSE IF var > 5 AND var < 10",
+            "ELSE IF var > 5 AND var < 10 THEN",
                 "var = var - 1",
             "ELSE",
                 "var = x",
@@ -2156,11 +2202,11 @@ public:
 
     void whileLoop_invalid_Nested_MissingENDWHILE() {
         vector<string> lines = {
-        "WHILE x > -1",
+        "WHILE x > 1",
             "x = x - 1",
             "IF var > 10 THEN",
             "var = var + 1",
-            "ELSE IF var > 5 AND var < 10",
+            "ELSE IF var > 5 AND var < 10 THEN",
             "var = var - 1",
             "ELSE",
             "var = x",
@@ -2169,8 +2215,8 @@ public:
                 "var = x - 2",
                 "y = var * -2",
         "END WHILE"
-    };
-    testInterpreter(lines);
+        };
+        testInterpreter(lines);
     }
 
 };
@@ -2179,8 +2225,7 @@ Interpreter interpreter; // Definition of the global variable
 
 int main() {
     Test test;
-    //test.ifStatement_valid_Short();
+    test.whileLoop_valid_Short();
 
     return 0;
 }
-
