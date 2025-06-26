@@ -792,15 +792,57 @@ public:
 
 class ForLoop : public Statement {
 private:
+    TokenInstance startValue = { Token::Literal, "0" };
+    TokenInstance endValue = { Token::Literal, "0" };
     vector<Statement*> statements;
     int numReptitions = 0;
+    int repetitionCount = 0;
 
-    void getRepetitions() { //TDLR
-        this->numReptitions = 0;
+    int getValue(string val) {
+        int value = 0;
+        Integer Int;
+        if (Int.validInt(val)) {
+            value = Int.stringToInt(val);
+        }
+        else {
+            raiseRuntimeException("The value, " + val + " is not a valid integer. An integer value was expected.");
+        }
+        return value;
     }
+
+    void getRepetitions() {
+        int start = getValue(startValue.lexeme);
+        int end = getValue(endValue.lexeme);
+        if (start > end) {
+            this->numReptitions = start - end;
+        }
+        else {
+            this->numReptitions = end - start;
+        }
+    }
+
+    void resetCount() {
+        repetitionCount = 0;
+    }
+
+    void executeStatements() {
+        for (auto& stat : statements) {
+            stat->execute();
+        }
+    }
+
 public:
     void execute() override {
-
+        resetCount();
+        int maxValue = 32768;
+        while (repetitionCount <= numReptitions) {
+            executeStatements();
+            repetitionCount++;
+            if (repetitionCount >= maxValue) {
+                raiseRuntimeException("Maximum number of repetitions exceeded. You may have created an infinite loop here.");
+                break;
+            }
+        }
     }
 };
 
@@ -1590,7 +1632,7 @@ public:
     void forLoop() {
 
         //for-loop
-        /*EBNF: FOR <integer variable> = <start number> | <variable> TO <end number> | <variable>
+        /*EBNF: FOR <integer variable> = <start number>|<variable> TO <end number>|<variable>
                       {<statements>(may include more loops or if-statements)}
                 NEXT
         */
