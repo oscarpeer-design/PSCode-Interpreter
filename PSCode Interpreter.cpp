@@ -17,7 +17,7 @@ enum class DataType { Int, Float, Char, String, Boolean, UnAssigned };
 enum class ExceptionType { Lexical, Syntactical, Runtime };
 
 enum class StatementType { BEGIN, END, Output, AssignmentStatement, VariableExpression, IFStatement, ForLoop, WhileLoop, Undefined };
-enum class Token { BEGIN, END, IF, WHILE, FOR, ENDIF, THEN, TO, ELSE, ELSEIF, ENDWHILE, DISPLAY, SET, AS, ADD, SUB, DIV, MULTIPLY, Int, Float, Char, String, Boolean, OpenBrace, ClosedBrace, Variable, Literal, EqualityOp, AND, OR };
+enum class Token { BEGIN, END, IF, WHILE, FOR, ENDIF, THEN, TO, ELSE, ELSEIF, ENDWHILE, NEXT, DISPLAY, SET, AS, ADD, SUB, DIV, MULTIPLY, Int, Float, Char, String, Boolean, OpenBrace, ClosedBrace, Variable, Literal, EqualityOp, AND, OR };
 
 struct TokenInstance {
     Token type = Token::Literal;
@@ -166,6 +166,7 @@ private:
         {"ELSE", Token::ELSE},
         {"ELSE IF", Token::ELSEIF},
         {"END WHILE", Token::ENDWHILE},
+        {"NEXT", Token::NEXT},
         {"DISPLAY", Token::DISPLAY},
         {"SET", Token::SET},
         {"AS", Token::AS},
@@ -268,16 +269,15 @@ public:
         if (it != tokenMap.end()) {
             return it->second;
         }
-        if (isLiteral(element)) {
-            return Token::Literal;
-        }
         if (isValidVariable(element)) {
             return Token::Variable;
+        }
+        if (isLiteral(element)) {
+            return Token::Literal;
         }
         raiseException("An unexpected token was found: " + element);
         return Token::Literal; // Default fallback
     }
-
 
     string removeNewline(string line) {
         string chopped = line;
@@ -864,7 +864,7 @@ public:
             cout << "Tokenizing line " << currentLineNum << ": "; //debugging output statement
             lexer.setLine(this->lines[currentLineNum]);
             tokens = lexer.tokenizeLine();
-            printTokens(tokens);
+            printLexemes(tokens);
             currentLineNum++;
         }
         return tokens;
@@ -996,13 +996,14 @@ private:
     bool isFinalLine = false;
     ExceptionType exType = ExceptionType::Syntactical;
     vector<TokenInstance> tokens; // Use a dynamic vector instead of a fixed-size array to store the tokens 
-    //size_t numTokens = tokens.size;
+    //Tracking number of blank lines skipped
+    int blankLineSkips = 0; //track number of times a blank line is skipped
+    const int maxBlankLineSkips = 1000;
 
 public:
     Parser() : statement(nullptr) {}
 
     Parser(vector<TokenInstance>generatedTokens) {
-        //this->numTokens = generatedTokens.size();
         this->statement = nullptr;
         this->tokens = generatedTokens;
     }
@@ -1012,7 +1013,6 @@ public:
     }
 
     void setNewTokens(vector<TokenInstance>generatedTokens) {
-        //this->numTokens = generatedTokens.size();
         this->tokens = generatedTokens;
     }
 
@@ -1022,8 +1022,20 @@ public:
         //interpreter.printTokens(this->tokens);
     }
 
+    void resetLineSkips() {
+        blankLineSkips = 0;
+    }
+
+    void recordLineSkip() {
+        blankLineSkips++;
+    }
+
     bool syntaxValid() {
         return this->validSyntax;
+    }
+
+    bool maxSkipsReached() {
+        return blankLineSkips > maxBlankLineSkips;
     }
 
     void checkFinalLine() {
@@ -1068,6 +1080,18 @@ public:
             this->statement = whileLoopStatement;
             break;
         }
+        case Token::ENDIF:
+            //This is only valid if we are inside an IF statement. Outside, it's extra or misplaced.
+            raiseException("Extra END IF found outside of an IF statement");
+            break;
+        case Token::ENDWHILE:
+            //This is only valid if we are inside a WHILE loop. Outside, it's extra or misplaced.
+            raiseException("Extra END WHILE found outside of a WHILE loop.");
+            break;
+        case Token::NEXT:
+            //This is only valid if we are inside a FOR loop. Outside, it's extra or misplaced.
+            raiseException("Extra NEXT found outside of a FOR loop.");
+            break;
         default:
             break;
             /*if (t != Token::BEGIN && t != Token::END) {
@@ -1372,13 +1396,13 @@ public:
     }
 
     Branch* parseWHILEBranch(const vector<TokenInstance>& headerTokens) {
-        checkFinalLine();//guard to prevent empty values from being parsed
+        checkFinalLine();
         if (tokens.empty() && isFinalLine) {
             return nullptr;
         }
 
-        cout << "parseWHILEBranch: headerTokens = "; //debugging output statement
-        interpreter.printLexemes(headerTokens);//debugging output statement
+        cout << "parseWHILEBranch: headerTokens = ";
+        interpreter.printLexemes(headerTokens);
         ConditionalStatement cond;
         size_t start = 1;
         size_t end = headerTokens.size();
@@ -1388,26 +1412,26 @@ public:
         bool done = false;
         Token t = Token::Literal;
 
-        //Advance to first line of the loop body
+        // Advance to first line of the loop body
         generateNewTokens();
         checkFinalLine();
 
-        while (!done && !isFinalLine && validSyntax) {
-            if (tokens.empty()) { //If an empty line is passed
-                generateNewTokens(); //get the next line and check if it is empty
+        resetLineSkips();
+        while (!done && !isFinalLine && validSyntax && !maxSkipsReached()) {
+            if (tokens.empty()) {
+                generateNewTokens();
                 checkFinalLine();
-                // If we reach the end of input and the loop lacks an END WHILE, raise an exception and break
-                if (tokens.empty() && isFinalLine) {
-                    raiseException("Missing an END WHILE for the above WHILE loop.");
-                    return nullptr; //exit the method
+                recordLineSkip();
+                //check for final line if an empty line has been found to prevent an infinite loop from occurring
+                if (tokens.empty()) {
+                    if (isFinalLine) break;
+                    else continue;
                 }
-                if (tokens.empty()) continue;
             }
             t = tokens[0].type;
             if (t == Token::IF) {
                 BranchNode* nestedIfNode = parseIfStatement();
                 if (!nestedIfNode) {
-                    //Stop parsing if the nested IF is invalid
                     return nullptr;
                 }
                 IFStatement* nestedIfStatement = new IFStatement(nestedIfNode);
@@ -1418,7 +1442,6 @@ public:
             else if (t == Token::WHILE) {
                 Branch* nestedWhile = parseWhileLoop();
                 if (!nestedWhile) {
-                    //Stop parsing the branch if nested WHILE is invalid
                     return nullptr;
                 }
                 WhileLoop* whileLoopStatement = new WhileLoop(nestedWhile);
@@ -1428,7 +1451,7 @@ public:
             }
             else if (t == Token::ENDWHILE) {
                 done = true;
-                generateNewTokens();
+                break; // Do NOT call generateNewTokens() here!
             }
             else {
                 parseExpression();
@@ -1436,10 +1459,24 @@ public:
                 statement = nullptr;
                 generateNewTokens();
             }
+            cout << "Printing next line: ";
+            interpreter.printLexemes(tokens);
+            cout << "which is tokenized to become: ";
+            interpreter.printTokens(tokens);
             checkFinalLine();
         }
 
-        if (!done && isFinalLine) { //checking for missing END WHILE at end of method
+        if (!done) {
+            if (!tokens.empty() && tokens[0].type == Token::ENDWHILE) {
+                done = true;
+            }
+            else { //if we are at the end of the file, or in any other case, it's a missing END WHILE
+                raiseException("Missing an END WHILE for the above WHILE loop.");
+                return nullptr;
+            }
+        }
+        //Only advance if END WHILE is found
+        if (!done) {
             raiseException("Missing an END WHILE for the above WHILE loop.");
             return nullptr;
         }
@@ -1447,6 +1484,7 @@ public:
         if (!validSyntax) return nullptr;
         return new Branch(cond, statements);
     }
+
 
     Branch* parseIFBranch(bool isElseBranch, const vector<TokenInstance>& headerTokens, BranchNode* parentNode = nullptr) {
         //cout << "parseBranch: next token is " << interpreter.getTokenString(tokens[0].type) << " (" << tokens[0].lexeme << ")" << endl; //debugging output statement
@@ -1465,9 +1503,11 @@ public:
         }
         vector<Statement*> statements;
         bool done = false;
-        while (!done && !isFinalLine && validSyntax) {
+        resetLineSkips();
+        while (!done && !isFinalLine && validSyntax && !maxSkipsReached()) {
             if (tokens.empty()) {
                 generateNewTokens();
+                recordLineSkip();
                 if (tokens.empty()) continue;
             }
             //cout << "parseIfStatement: lookahead token is " << interpreter.getTokenString(tokens[0].type) << " (" << tokens[0].lexeme << ")" << endl; //debugging output statement
@@ -1569,7 +1609,6 @@ public:
         //postcondition: ENDWHILE expected
         vector<TokenInstance> headerTokens = this->tokens;
         Branch* branch = parseWHILEBranch(headerTokens);
-
         return branch;
     }
 
@@ -1710,7 +1749,7 @@ public:
         p.outputStatement();
     }
 
-    void outputStatement_invalidADD() { //passes (fails as expected)
+    void outputStatement_invalidADD() { //passes (error detected)
         vector<TokenInstance> tokens = {
             TokenInstance {Token::DISPLAY, "DISPLAY"},
             TokenInstance {Token::Literal, "name: "},
@@ -1720,7 +1759,7 @@ public:
         p.outputStatement();
     }
 
-    void outputStatement_invalidRandomToken() { //passes (fails as expected)
+    void outputStatement_invalidRandomToken() { //passes (error detected)
         vector<TokenInstance> tokens = {
             TokenInstance {Token::DISPLAY, "DISPLAY"},
             TokenInstance {Token::Literal, "name: "},
@@ -1730,7 +1769,7 @@ public:
         Parser p(tokens);
         p.outputStatement();
     }
-    void outputStatement_invalidLength() { //passes (fails as expected)
+    void outputStatement_invalidLength() { //passes (error detected)
         vector<TokenInstance> tokens = {
             TokenInstance {Token::DISPLAY, "DISPLAY"}
         };
@@ -1749,7 +1788,7 @@ public:
         p.assignmentStatement();
     }
 
-    void assignmentStatement_invalidDatatype() { // passes (fails as expected)
+    void assignmentStatement_invalidDatatype() { // passes (error detected)
         vector<TokenInstance> tokens = {
             TokenInstance {Token::SET, "SET"},
             TokenInstance {Token::Variable, "var"},
@@ -1760,7 +1799,7 @@ public:
         p.assignmentStatement();
     }
 
-    void assignmentStatement_invalidLength() { // passes (fails as expected)
+    void assignmentStatement_invalidLength() { // passes (error detected)
         vector<TokenInstance> tokens = {
             TokenInstance {Token::SET, "SET"},
             TokenInstance {Token::Variable, "var"},
@@ -1769,7 +1808,7 @@ public:
         p.assignmentStatement();
     }
 
-    void assignmentStatement_invalidRandomTokens() { // passes (fails as expected)
+    void assignmentStatement_invalidRandomTokens() { // passes (error detected)
         vector<TokenInstance> tokens = {
             TokenInstance {Token::SET, "SET"},
             TokenInstance {Token::Variable, "var"},
@@ -1811,7 +1850,7 @@ public:
         ConditionalStatement c = p.parseConditionalStatement(tokens);
     }
 
-    void conditionalStatement_invalidToken() { // passes (fails as expected)
+    void conditionalStatement_invalidToken() { // passes (error detected)
         vector<TokenInstance> tokens = {
             TokenInstance {Token::Variable, "var1"},
             TokenInstance {Token::EqualityOp, ">"},
@@ -1824,7 +1863,7 @@ public:
         Parser p(tokens);
         ConditionalStatement c = p.parseConditionalStatement(tokens);
     }
-    void conditionalStatement_invalid_expectedCondition() { // passes (fails as expected)
+    void conditionalStatement_invalid_expectedCondition() { // passes (error detected)
         vector<TokenInstance> tokens = {
             TokenInstance {Token::Variable, "var1"},
             TokenInstance {Token::EqualityOp, ">"},
@@ -1839,7 +1878,7 @@ public:
         ConditionalStatement c = p.parseConditionalStatement(tokens);
     }
 
-    void conditionalStatement_invalid_expectedLinker() { // passes (fails as expected)
+    void conditionalStatement_invalid_expectedLinker() { // passes (error detected)
         vector<TokenInstance> tokens = {
             TokenInstance {Token::Variable, "var1"},
             TokenInstance {Token::EqualityOp, ">"},
@@ -1880,7 +1919,7 @@ public:
         p.variableExpression();
     }
 
-    void variableExpression_invalidLength() { // passes (fails as expected)
+    void variableExpression_invalidLength() { // passes (error detected)
         vector<TokenInstance> tokens = {
             TokenInstance {Token::Variable, "var"},
             TokenInstance {Token::Literal, "="}
@@ -1889,7 +1928,7 @@ public:
         p.variableExpression();
     }
 
-    void variableExpression_invalidEqualityOp() { // passes (fails as expected)
+    void variableExpression_invalidEqualityOp() { // passes (error detected)
         vector<TokenInstance> tokens = {
             TokenInstance {Token::Variable, "var"},
             TokenInstance {Token::EqualityOp, ">"},
@@ -1899,7 +1938,7 @@ public:
         p.variableExpression();
     }
 
-    void variableExpression_invalid_expectedOperand() { // passes (fails as expected)
+    void variableExpression_invalid_expectedOperand() { // passes (error detected)
         vector<TokenInstance> tokens = {
             TokenInstance {Token::Variable, "var"},
             TokenInstance {Token::EqualityOp, "="},
@@ -1912,7 +1951,7 @@ public:
         p.variableExpression();
     }
 
-    void variableExpression_invalid_expectedValue() { // passes (fails as expected)
+    void variableExpression_invalid_expectedValue() { // passes (error detected)
         vector<TokenInstance> tokens = {
             TokenInstance {Token::Variable, "var"},
             TokenInstance {Token::EqualityOp, "="},
@@ -1925,7 +1964,7 @@ public:
         p.variableExpression();
     }
 
-    void variableExpression_invalidOperand() { // passes (fails as expected)
+    void variableExpression_invalidOperand() { // passes (error detected)
         vector<TokenInstance> tokens = {
             TokenInstance {Token::Variable, "var"},
             TokenInstance {Token::EqualityOp, "="},
@@ -1944,7 +1983,14 @@ public:
         cout << "testInterpreter: first tokens = "; //debugging output statement
         interpreter.printLexemes(tokens); //debugging output statement
         Parser p(tokens);
-        p.parseExpression();
+
+        // Parse all lines/statements, not just the first
+        while (p.syntaxValid() && !tokens.empty()) {
+            p.parseExpression();
+            if (!p.syntaxValid()) break;
+            tokens = interpreter.getNewTokens();
+            p.setNewTokens(tokens);
+        }
     }
 
     void ifStatement_valid_Short() { // passes (works)
@@ -1990,7 +2036,7 @@ public:
         testInterpreter(lines);
     }
 
-    void ifStatement_invalid_Short_InvalidEqualityOperand() { // passes (fails as expected)
+    void ifStatement_invalid_Short_InvalidEqualityOperand() { // passes (error detected)
         vector<string> lines = {
             "IF var is 1 THEN",
                 "var = var + 1",
@@ -1998,7 +2044,7 @@ public:
         testInterpreter(lines);
     }
 
-    void ifStatement_invalid_Longer_InvalidEqualityOperand() { // passes (fails as expected)
+    void ifStatement_invalid_Longer_InvalidEqualityOperand() { // passes (error detected)
         vector<string> lines = {
             "IF var > 1 THEN",
                 "var = var + 1",
@@ -2010,7 +2056,7 @@ public:
         testInterpreter(lines);
     }
 
-    void ifStatement_invalid_Longer_Nested_InvalidEqualityOperand() { // passes (fails as expected)
+    void ifStatement_invalid_Longer_Nested_InvalidEqualityOperand() { // passes (error detected)
         vector<string> lines = {
             "IF var > 1 THEN",
                 "var = var + 1",
@@ -2024,14 +2070,14 @@ public:
         testInterpreter(lines);
     }
 
-    void ifStatement_invalid_Short_MissingENDIF() { // passes (fails as expected)
+    void ifStatement_invalid_Short_MissingENDIF() { // passes (error detected)
         vector<string> lines = {
             "IF var is 1 THEN",
                 "var = var + 1" };
         testInterpreter(lines);
     }
 
-    void ifStatement_invalid_Longer_MissingENDIF() { // passes (fails as expected)
+    void ifStatement_invalid_Longer_MissingENDIF() { // passes (error detected)
         vector<string> lines = {
             "IF var > 1 THEN",
                 "var = var + 1",
@@ -2042,7 +2088,7 @@ public:
         testInterpreter(lines);
     }
 
-    void ifStatement_invalid_Nested_MissingENDIF() { // passes (fails as expected)
+    void ifStatement_invalid_Nested_MissingENDIF() { // passes (error detected)
         vector<string> lines = {
             "IF var > 1 THEN",
                 "var = var + 1",
@@ -2055,7 +2101,7 @@ public:
         testInterpreter(lines);
     }
 
-    void ifStatement_invalid_Short_MissingTHEN() { // passes (fails as expected)
+    void ifStatement_invalid_Short_MissingTHEN() { // passes (error detected)
         vector<string> lines = {
             "IF var is 1 THEN",
                 "var = var + 1",
@@ -2063,7 +2109,7 @@ public:
         testInterpreter(lines);
     }
 
-    void ifStatement_invalid_Longer_MissingTHEN() { // passes (fails as expected)
+    void ifStatement_invalid_Longer_MissingTHEN() { // passes (error detected)
         vector<string> lines = {
             "IF var > 1 THEN",
                 "var = var + 1",
@@ -2075,7 +2121,7 @@ public:
         testInterpreter(lines);
     }
 
-    void ifStatement_invalid_Nested_MissingTHEN() { // passes (fails as expected)
+    void ifStatement_invalid_Nested_MissingTHEN() { // passes (error detected)
         vector<string> lines = {
             "IF var > 1 THEN",
                 "var = var + 1",
@@ -2089,7 +2135,7 @@ public:
         testInterpreter(lines);
     }
     //N.B. Change these conditions to include negative numbers
-    void whileLoop_valid_Short() {
+    void whileLoop_valid_Short() { // passes (works as expected)
         vector<string> lines = {
         "WHILE x < 0",
             "x = x - 1",
@@ -2099,13 +2145,13 @@ public:
         testInterpreter(lines);
     }
 
-    void whileLoop_valid_Long() {
+    void whileLoop_valid_Long() { // passes (works as expected)
         vector<string> lines = {
         "WHILE x > 0",
             "x = x - 1",
             "IF var > 1 AND var < 2 THEN",
                 "var = var + 1",
-            "ELSE IF var > 0 AND var < 1",
+            "ELSE IF var > 0 AND var < 1 THEN",
                 "var = var - 1",
             "ELSE",
                 "var = 0",
@@ -2114,14 +2160,14 @@ public:
         testInterpreter(lines);
     }
 
-    void whileLoop_valid_MissingStatements() {
+    void whileLoop_valid_MissingStatements() { // passes (works as expected)
         vector<string> lines = {
         "WHILE x = 1",
         "END WHILE" };
         testInterpreter(lines);
     }
 
-    void whileLoop_valid_nestedLoop() {
+    void whileLoop_valid_nestedLoop() { // passes (works as expected)
         vector<string> lines = {
         "WHILE x > 1",
            "x = x - 1",
@@ -2135,7 +2181,7 @@ public:
         testInterpreter(lines);
     }
 
-    void whileLoop_valid_BlankLines() {
+    void whileLoop_valid_BlankLines() { // passes (works as expected)
         vector<string> lines = {
             "WHILE x < 10",
             "",
@@ -2145,7 +2191,7 @@ public:
         testInterpreter(lines);
     }
 
-    void whileLoop_invalid_ExtraEndWhile() {
+    void whileLoop_invalid_ExtraENDWHILE() { // passes (error detected)
         vector<string> lines = {
             "WHILE x > 0",
             "x = x - 1",
@@ -2155,7 +2201,22 @@ public:
         testInterpreter(lines);
     }
 
-    void whileLoop_invalid_InvalidEqualityOperator() {
+    void whileLoop_invalid_Nested_ExtraENDWHILE() { // passes (error detected)
+        vector<string> lines = {
+        "WHILE x > 1",
+           "x = x - 1",
+           "IF var > 1 THEN",
+               "var = var - 1",
+           "END IF",
+           "WHILE var < 10",
+                "var = var + 2",
+           "END WHILE",
+        "END WHILE",
+        "END WHILE" };
+        testInterpreter(lines);
+    }
+
+    void whileLoop_invalid_InvalidEqualityOperator() { // passes (error detected)
         vector<string> lines = {
         "WHILE x != -1",
             "x = x - 1",
@@ -2170,7 +2231,7 @@ public:
         testInterpreter(lines);
     }
 
-    void whileLoop_invalid_InvalidRandomToken() {
+    void whileLoop_invalid_InvalidRandomToken() { // passes (error detected)
         vector<string> lines = {
         "WHILE x 1 = 10",
             "x = x - 1",
@@ -2185,7 +2246,7 @@ public:
         testInterpreter(lines);
     }
 
-    void whileLoop_invalid_MissingENDWHILE() {
+    void whileLoop_invalid_MissingENDWHILE() { // passes (error detected)
         vector<string> lines = {
         "WHILE x > 1",
             "x = x - 1",
@@ -2200,7 +2261,7 @@ public:
         testInterpreter(lines);
     }
 
-    void whileLoop_invalid_Nested_MissingENDWHILE() {
+    void whileLoop_invalid_Nested_MissingENDWHILE() { // passes (error detected)
         vector<string> lines = {
         "WHILE x > 1",
             "x = x - 1",
@@ -2213,8 +2274,8 @@ public:
             "END IF",
             "WHILE var > 0",
                 "var = x - 2",
-                "y = var * -2",
-        "END WHILE"
+                "y = var * 2",
+            "END WHILE"
         };
         testInterpreter(lines);
     }
