@@ -795,7 +795,7 @@ private:
     TokenInstance startValue = { Token::Literal, "0" };
     TokenInstance endValue = { Token::Literal, "0" };
     vector<Statement*> statements;
-    int numReptitions = 0;
+    int numRepetitions = 0;
     int repetitionCount = 0;
 
     int getValue(string val) {
@@ -814,10 +814,10 @@ private:
         int start = getValue(startValue.lexeme);
         int end = getValue(endValue.lexeme);
         if (start > end) {
-            this->numReptitions = start - end;
+            this->numRepetitions = start - end + 1;
         }
         else {
-            this->numReptitions = end - start;
+            this->numRepetitions = end - start + 1;
         }
     }
 
@@ -832,10 +832,24 @@ private:
     }
 
 public:
+
+    ForLoop(vector<Statement*> statements, TokenInstance start, TokenInstance end) {
+        this->statements = statements;
+        this->startValue = start;
+        this->endValue = end;
+        this->numRepetitions = 0;
+        this->repetitionCount = 0;
+    }
+
+    ~ForLoop() override {
+        for (auto stat : this->statements) delete stat;
+    }
+
     void execute() override {
         resetCount();
+        getRepetitions();
         int maxValue = 32768;
-        while (repetitionCount <= numReptitions) {
+        while (repetitionCount <= numRepetitions) {
             executeStatements();
             repetitionCount++;
             if (repetitionCount >= maxValue) {
@@ -1085,7 +1099,7 @@ public:
     }
 
     void parseExpression() {
-        Token t = this->tokens[0].type;
+        Token t = tokens[0].type;
         switch (t) {
         case Token::SET:
             this->statType = StatementType::AssignmentStatement;
@@ -1106,10 +1120,17 @@ public:
             this->statement = ifStat;
             break;
         }
-        case Token::FOR:
+        case Token::FOR: {
             this->statType = StatementType::ForLoop;
-            forLoop();
+            ForLoop* forLoop = parseForLoop();
+            if (!forLoop) {
+                //If parsing failed, do not create a ForLoop object
+                this->statement = nullptr;
+                break;
+            }
+            this->statement = forLoop;
             break;
+        }
         case Token::WHILE: {
             this->statType = StatementType::WhileLoop;
             Branch* whileBranch = parseWhileLoop();
@@ -1261,12 +1282,12 @@ public:
         //precondition: tokens[0] == SET
         //EBNF: SET <variable> AS <datatype>
         string exceptionMsg = "Invalid assignment statement.";
-        if (this->tokens.size() != 4 || this->tokens[2].type != Token::AS) { //check correct structure
+        if (tokens.size() != 4 || tokens[2].type != Token::AS) { //check correct structure
             raiseException(exceptionMsg);
         }
         else {
-            DataType dType = getType(this->tokens[3]);
-            TokenInstance var = this->tokens[1];
+            DataType dType = getType(tokens[3]);
+            TokenInstance var = tokens[1];
             //check correct tokens
             if (dType != DataType::UnAssigned && var.type == Token::Variable) {
                 this->statement = new Assignment(dType, var.lexeme);
@@ -1284,10 +1305,10 @@ public:
         string exceptionMsg = "Invalid output statement.";
         size_t i = 1;
         OutputStatement* output = new OutputStatement();
-        while (i < this->tokens.size() && valid) {
-            type = this->tokens[i].type;
+        while (i < tokens.size() && valid) {
+            type = tokens[i].type;
             if (expectedValue && isVariableORValue(type)) {
-                output->addVariable(this->tokens[i]);
+                output->addVariable(tokens[i]);
                 expectedValue = false;
             }
             else if (!expectedValue && type == Token::ADD) {
@@ -1580,7 +1601,7 @@ public:
     BranchNode* parseIfStatement() {
         //cout << "parseIfStatement: lookahead token is " << interpreter.getTokenString(tokens[0].type) << " (" << tokens[0].lexeme << ")" << endl; //debugging output statement
         bool isElse = tokens[0].type == Token::ELSE;
-        vector<TokenInstance> headerTokens = this->tokens;
+        vector<TokenInstance> headerTokens = tokens;
         generateNewTokens(); // <-- Advance to the first line of the branch body!
         BranchNode* node = new BranchNode();
         node->isElseBranch = isElse;
@@ -1627,10 +1648,32 @@ public:
         return node;
     }
 
+    vector<TokenInstance> parseForStatement(vector<TokenInstance> headerTokens) {
+        //Expect headerTokens = FOR <integer variable> = <start number>|<variable> TO <end number>|<variable>
+        vector<TokenInstance> startEndTokens;
+        bool validForStat = false;
+        if (tokens.size() == 6) {
+            if (headerTokens[1].type == Token::Variable && headerTokens[4].type == Token::TO && headerTokens[2].lexeme == "=") { //checking initial variable and terminals in FOR statement (if the first token is known to be a FOR token)
+                if (isVariableORValue(headerTokens[3].type) && isVariableORValue(headerTokens[5].type)) { //checking the two non-terminals in the FOR statement
+                    validForStat = true;
+                }
+            }
+        }
+
+        if (validForStat) {
+            startEndTokens.push_back(headerTokens[3]);
+            startEndTokens.push_back(headerTokens[5]);
+        }
+        else {
+            raiseException("Invalid tokens for FOR loop statement.");
+
+        }
+        return startEndTokens;
+    }
 
 
-    void forLoop() {
 
+    ForLoop* parseForLoop() {
         //for-loop
         /*EBNF: FOR <integer variable> = <start number>|<variable> TO <end number>|<variable>
                       {<statements>(may include more loops or if-statements)}
@@ -1638,6 +1681,50 @@ public:
         */
         //precondition: tokens[0] == FOR
         //postcondition: NEXT expected
+        vector<Statement*> statements;
+        TokenInstance startValue = { Token::Literal, "0" };
+        TokenInstance endValue = { Token::Literal, "0" };
+
+        vector<TokenInstance>headerTokens = tokens;
+
+        vector<TokenInstance> startEndTokens = parseForStatement(headerTokens);
+        if (startEndTokens.size() == 2) {
+            startValue = startEndTokens[0];
+            endValue = startEndTokens[1];
+        }
+        generateNewTokens();
+        resetLineSkips();
+        bool done = false;
+        Token t = Token::Literal;
+
+        while (!isFinalLine && !done && validSyntax && !maxSkipsReached()) {
+            if (tokens.empty()) {
+                generateNewTokens();
+                if (tokens.empty()) continue;
+            }
+            t = tokens[0].type;
+            if (t == Token::FOR) {
+                ForLoop* forLoop = parseForLoop();
+                statements.push_back(forLoop);
+                this->statement = nullptr;
+                generateNewTokens();
+            }
+            else if (t == Token::NEXT) {
+                done = true;
+            }
+            else {
+                parseExpression();
+                statements.push_back(this->statement);
+                this->statement = nullptr;
+                generateNewTokens();
+            }
+            checkFinalLine();
+        }
+        if (!done && isFinalLine) {
+            raiseException("Missing a NEXT statement for the above FOR loop.");
+            return nullptr;
+        }
+        return new ForLoop(statements, startValue, endValue);
     }
 
     Branch* parseWhileLoop() {
@@ -1649,7 +1736,7 @@ public:
         //EBNF: WHILE <condition> 
         //precondition: tokens[0] == WHILE
         //postcondition: ENDWHILE expected
-        vector<TokenInstance> headerTokens = this->tokens;
+        vector<TokenInstance> headerTokens = tokens;
         Branch* branch = parseWHILEBranch(headerTokens);
         return branch;
     }
@@ -1660,7 +1747,7 @@ public:
         //precondition: tokens[0].type == <variable>
         //EBNF: <variable> = <variable>|<value> {<operator> <variable>|<value>}
         //The actual complexities of type concatenation will be handled by the Runtime Analyser
-        size_t size = this->tokens.size();
+        size_t size = tokens.size();
         bool validExpression = true;
         string msg = "Invalid variable expression.";
         if (size < 3) {
@@ -1677,16 +1764,16 @@ public:
         bool opExpected = false;
         Token type;
         while (idx < size && validExpression) {
-            type = this->tokens[idx].type;
+            type = tokens[idx].type;
             if (valueExpected && (isVariableORValue(type) || isBrace(type))) {
                 valueExpected = false;
-                values.push_back(this->tokens[idx]);
+                values.push_back(tokens[idx]);
                 if (idx < size - 1) {
                     opExpected = true;
                 }
             }
             else if (opExpected && isOperand(type)) {
-                operations.push_back(getArithmeticOperator(this->tokens[idx]));
+                operations.push_back(getArithmeticOperator(tokens[idx]));
                 opExpected = false;
                 valueExpected = true;
             }
@@ -1718,7 +1805,7 @@ public:
         int i = 0;
         int start = 0;
         int end = 1;
-        while (i < this->tokens.size()) {
+        while (i < tokens.size()) {
             //check to find operator
             //apply BODMAS based in operator
             //apply recursion with smaller token sub-arrays
@@ -2328,7 +2415,7 @@ Interpreter interpreter; // Definition of the global variable
 
 int main() {
     Test test;
-    test.whileLoop_valid_Short();
+    //test.whileLoop_valid_Short();
 
     return 0;
 }
