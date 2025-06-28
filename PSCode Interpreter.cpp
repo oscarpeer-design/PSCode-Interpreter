@@ -920,7 +920,7 @@ public:
             cout << "Tokenizing line " << currentLineNum << ": "; //debugging output statement
             lexer.setLine(this->lines[currentLineNum]);
             tokens = lexer.tokenizeLine();
-            printLexemes(tokens);
+            printTokens(tokens);
             currentLineNum++;
         }
         return tokens;
@@ -1016,6 +1016,9 @@ public:
             break;
         case Token::Variable:
             tokenStr = "Variable";
+            break;
+        case Token::NEXT:
+            tokenStr = "NEXT";
             break;
         default:
             tokenStr = "WHILE";
@@ -1703,6 +1706,7 @@ public:
                 if (tokens.empty()) continue;
             }
             t = tokens[0].type;
+            checkFinalLine();
             if (t == Token::FOR) {
                 ForLoop* forLoop = parseForLoop();
                 statements.push_back(forLoop);
@@ -1711,6 +1715,7 @@ public:
             }
             else if (t == Token::NEXT) {
                 done = true;
+                cout << "Found NEXT token, breaking out of FOR loop body.\n"; //debugging output statement
             }
             else {
                 parseExpression();
@@ -1718,9 +1723,9 @@ public:
                 this->statement = nullptr;
                 generateNewTokens();
             }
-            checkFinalLine();
         }
-        if (!done && isFinalLine) {
+        cout << "After FOR loop body, done = " << done << endl; //debugging output statement
+        if (!done) {
             raiseException("Missing a NEXT statement for the above FOR loop.");
             return nullptr;
         }
@@ -2409,7 +2414,7 @@ public:
         testInterpreter(lines);
     }
 
-    void forLoop_valid_Short() {
+    void forLoop_valid_Short() { // passes (works as expected)
         vector<string> lines = {
         "FOR i = 1 TO 5",
         "x = x * i",
@@ -2419,7 +2424,7 @@ public:
         testInterpreter(lines);
     }
 
-    void forLoop_valid_Long() {
+    void forLoop_valid_Long() { // passes (works as expected)
         vector<string> lines = {
         "FOR i = a TO 5",
             "x = x * i",
@@ -2428,17 +2433,17 @@ public:
             "ELSE",
             "a = a - 1",
             "END IF",
-            "y = x"
+            "y = x",
             "NEXT"
         };
         testInterpreter(lines);
     }
 
-    void forLoop_valid_Nested() {
+    void forLoop_valid_Nested() { // passes (works as expected)
         vector<string> lines = {
         "FOR i = a TO b",
             "x = x * i",
-            "WHILE x < 100"
+            "WHILE x < 100",
                 "IF x > a THEN",
                     "x = x - y",
                 "END IF",
@@ -2452,7 +2457,7 @@ public:
         testInterpreter(lines);
     }
 
-    void forLoop_valid_MissingStatements() {
+    void forLoop_valid_MissingStatements() { // passes (works as expected)
         vector<string> lines = {
         "FOR x = 1 TO length",
             "a = length * breadth",
@@ -2463,7 +2468,7 @@ public:
         testInterpreter(lines);
     }
 
-    void forLoop_valid_BlankLines() {
+    void forLoop_valid_BlankLines() { // passes (works as expected)
         vector<string> lines = {
             "FOR y = 10 TO 1",
             " ",
@@ -2474,7 +2479,7 @@ public:
         testInterpreter(lines);
     }
 
-    void forLoop_invalid_Short_lowercaseFOR() {
+    void forLoop_invalid_Short_lowercaseFOR() { // passes (error detected)
         vector<string> lines = {
         "for i = 1 TO 100",
         "x = x + i",
@@ -2484,7 +2489,7 @@ public:
         testInterpreter(lines);
     }
 
-    void forLoop_invalid_Nested_lowercaseFOR() {
+    void forLoop_invalid_Nested_lowercaseFOR() { // passes (error detected)
         vector<string> lines = {
         "FOR x = 1 TO length",
             "a = length * breadth",
@@ -2495,7 +2500,7 @@ public:
         testInterpreter(lines);
     }
 
-    void forLoop_invalid_Short_invalidForStatement() {
+    void forLoop_invalid_Short_invalidForStatement() { // passes (error detected)
         vector<string> lines = {
         "FOR i = 1 TO",
         "x = x * i",
@@ -2505,7 +2510,7 @@ public:
         testInterpreter(lines);
     }
 
-    void forLoop_invalid_Long_invalidForStatement() {
+    void forLoop_invalid_Long_invalidForStatement() { // passes (error detected)
         vector<string> lines = {
         "FOR 1 = a TO b",
             "x = x * i",
@@ -2519,7 +2524,7 @@ public:
         testInterpreter(lines);
     }
 
-    void forLoop_invalid_Nested_invalidForStatement() {
+    void forLoop_invalid_Nested_invalidForStatement() { // passes (error detected)
         vector<string> lines = {
         "FOR i = a TO b",
             "WHILE x > 0",
@@ -2534,7 +2539,7 @@ public:
         testInterpreter(lines);
     }
 
-    void forLoop_invalid_Short_InvalidRandomToken() {
+    void forLoop_invalid_Short_InvalidRandomToken() { // passes (error detected)
         vector<string> lines = {
         "FOR c = a TO b + 1",
             "x = x * i",
@@ -2543,7 +2548,7 @@ public:
         testInterpreter(lines);
     }
 
-    void forLoop_invalid_Nested_InvalidRandomToken() {
+    void forLoop_invalid_Nested_InvalidRandomToken() { // passes (error detected)
         vector<string> lines = {
         "FOR i = a TO b",
             "FOR c = TO 10",
@@ -2556,7 +2561,7 @@ public:
         testInterpreter(lines);
     }
 
-    void forLoop_invalid_Short_MissingNEXT() {
+    void forLoop_invalid_Short_MissingNEXT() { // passes (error detected)
         vector<string> lines = {
         "FOR c = a TO b",
             "x = x * i",
@@ -2565,7 +2570,7 @@ public:
         testInterpreter(lines);
     }
 
-    void forLoop_invalid_Nested_MissingNEXT() {
+    void forLoop_invalid_Nested_MissingNEXT() { // passes (error detected)
         vector<string> lines = {
             "FOR i = a TO b",
                 "WHILE x > 0",
@@ -2579,7 +2584,7 @@ public:
         testInterpreter(lines);
     }
 
-    void forLoop_invalid_Short_ExtraNEXT() {
+    void forLoop_invalid_Short_ExtraNEXT() { // passes (error detected)
         vector<string> lines = {
         "FOR c = a TO b",
             "x = x * i",
@@ -2589,10 +2594,10 @@ public:
         testInterpreter(lines);
     }
 
-    void forLoop_invalid_Nested_ExtraNEXT() {
+    void forLoop_invalid_Nested_ExtraNEXT() { // passes (error detected)
         vector<string> lines = {
             "FOR i = a TO b",
-                "FOR c <= 10",
+                "FOR c = b TO 10",
                         "x = x + c",
                 "NEXT",
                 "NEXT",
@@ -2609,6 +2614,7 @@ Interpreter interpreter; // Definition of the global variable
 
 int main() {
     Test test;
-    //test.forLoop_valid_Short();
+    test.forLoop_invalid_Nested_ExtraNEXT();
+
     return 0;
 }
