@@ -2409,13 +2409,206 @@ public:
         testInterpreter(lines);
     }
 
+    void forLoop_valid_Short() {
+        vector<string> lines = {
+        "FOR i = 1 TO 5",
+        "x = x * i",
+        "y = 1 / x",
+        "NEXT"
+        };
+        testInterpreter(lines);
+    }
+
+    void forLoop_valid_Long() {
+        vector<string> lines = {
+        "FOR i = a TO 5",
+            "x = x * i",
+            "IF x > a THEN",
+            "x = x - y",
+            "ELSE",
+            "a = a - 1",
+            "END IF",
+            "y = x"
+            "NEXT"
+        };
+        testInterpreter(lines);
+    }
+
+    void forLoop_valid_Nested() {
+        vector<string> lines = {
+        "FOR i = a TO b",
+            "x = x * i",
+            "WHILE x < 100"
+                "IF x > a THEN",
+                    "x = x - y",
+                "END IF",
+            "END WHILE",
+            "FOR c = 1 TO 10",
+                "x = x + c",
+            "NEXT",
+            "y = x",
+        "NEXT"
+        };
+        testInterpreter(lines);
+    }
+
+    void forLoop_valid_MissingStatements() {
+        vector<string> lines = {
+        "FOR x = 1 TO length",
+            "a = length * breadth",
+            "FOR y = 1 TO 10",
+            "NEXT",
+        "NEXT"
+        };
+        testInterpreter(lines);
+    }
+
+    void forLoop_valid_BlankLines() {
+        vector<string> lines = {
+            "FOR y = 10 TO 1",
+            " ",
+            "  ",
+            "",
+            "NEXT",
+        };
+        testInterpreter(lines);
+    }
+
+    void forLoop_invalid_Short_lowercaseFOR() {
+        vector<string> lines = {
+        "for i = 1 TO 100",
+        "x = x + i",
+        "y = 1 / x",
+        "NEXT"
+        };
+        testInterpreter(lines);
+    }
+
+    void forLoop_invalid_Nested_lowercaseFOR() {
+        vector<string> lines = {
+        "FOR x = 1 TO length",
+            "a = length * breadth",
+            "for y = 1 TO 10",
+            "NEXT",
+        "NEXT"
+        };
+        testInterpreter(lines);
+    }
+
+    void forLoop_invalid_Short_invalidForStatement() {
+        vector<string> lines = {
+        "FOR i = 1 TO",
+        "x = x * i",
+        "y = 1 / x",
+        "NEXT"
+        };
+        testInterpreter(lines);
+    }
+
+    void forLoop_invalid_Long_invalidForStatement() {
+        vector<string> lines = {
+        "FOR 1 = a TO b",
+            "x = x * i",
+            "WHILE x < 100"
+                "IF x > a THEN",
+                    "x = x - y",
+                "END IF",
+            "END WHILE",
+        "NEXT"
+        };
+        testInterpreter(lines);
+    }
+
+    void forLoop_invalid_Nested_invalidForStatement() {
+        vector<string> lines = {
+        "FOR i = a TO b",
+            "WHILE x > 0",
+                "x = x - y",
+            "END WHILE",
+            "FOR c <= 10",
+                "x = x + c",
+            "NEXT",
+            "y = x",
+        "NEXT"
+        };
+        testInterpreter(lines);
+    }
+
+    void forLoop_invalid_Short_InvalidRandomToken() {
+        vector<string> lines = {
+        "FOR c = a TO b + 1",
+            "x = x * i",
+        "NEXT"
+        };
+        testInterpreter(lines);
+    }
+
+    void forLoop_invalid_Nested_InvalidRandomToken() {
+        vector<string> lines = {
+        "FOR i = a TO b",
+            "FOR c = TO 10",
+                "x = x + c",
+            "NEXT",
+            "END IF",
+            "y = x",
+        "NEXT"
+        };
+        testInterpreter(lines);
+    }
+
+    void forLoop_invalid_Short_MissingNEXT() {
+        vector<string> lines = {
+        "FOR c = a TO b",
+            "x = x * i",
+            "y = x + y / c"
+        };
+        testInterpreter(lines);
+    }
+
+    void forLoop_invalid_Nested_MissingNEXT() {
+        vector<string> lines = {
+            "FOR i = a TO b",
+                "WHILE x > 0",
+                    "x = x - y",
+                    "FOR c <= 10",
+                        "x = x + c",
+                        "y = x",
+                "END WHILE",
+            "NEXT"
+        };
+        testInterpreter(lines);
+    }
+
+    void forLoop_invalid_Short_ExtraNEXT() {
+        vector<string> lines = {
+        "FOR c = a TO b",
+            "x = x * i",
+        "NEXT",
+        "NEXT"
+        };
+        testInterpreter(lines);
+    }
+
+    void forLoop_invalid_Nested_ExtraNEXT() {
+        vector<string> lines = {
+            "FOR i = a TO b",
+                "FOR c <= 10",
+                        "x = x + c",
+                "NEXT",
+                "NEXT",
+                "NEXT",
+                "y = x",
+            "NEXT"
+        };
+        testInterpreter(lines);
+    }
+
 };
 
 Interpreter interpreter; // Definition of the global variable
 
 int main() {
     Test test;
-    //test.whileLoop_valid_Short();
-
+    //test.forLoop_valid_Short();
     return 0;
 }
