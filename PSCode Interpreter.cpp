@@ -7,6 +7,7 @@
 #include <cctype>
 #include <climits>
 #include <exception>
+#include <stack>
 //#include <variant>
 using namespace std; //This makes outputting to the console require less lines
 using std::string; //Include these lines to add strings
@@ -917,10 +918,10 @@ public:
         vector<TokenInstance> tokens;
         Lexer lexer;
         if (this->currentLineNum < this->lines.size()) {
-            cout << "Tokenizing line " << currentLineNum << ": "; //debugging output statement
+            //cout << "Tokenizing line " << currentLineNum << ": "; // debugging output statement
             lexer.setLine(this->lines[currentLineNum]);
             tokens = lexer.tokenizeLine();
-            printTokens(tokens);
+            //printTokens(tokens); // debugging output statement
             currentLineNum++;
         }
         return tokens;
@@ -1076,7 +1077,7 @@ public:
     }
 
     void generateNewTokens() {
-        cout << "generating new tokens : line " << interpreter.getLineNum() << endl;
+        //cout << "generating new tokens : line " << interpreter.getLineNum() << endl;
         this->tokens = interpreter.getNewTokens();
         //interpreter.printTokens(this->tokens);
     }
@@ -1674,8 +1675,6 @@ public:
         return startEndTokens;
     }
 
-
-
     ForLoop* parseForLoop() {
         //for-loop
         /*EBNF: FOR <integer variable> = <start number>|<variable> TO <end number>|<variable>
@@ -1715,7 +1714,7 @@ public:
             }
             else if (t == Token::NEXT) {
                 done = true;
-                cout << "Found NEXT token, breaking out of FOR loop body.\n"; //debugging output statement
+                //cout << "Found NEXT token, breaking out of FOR loop body.\n"; //debugging output statement
             }
             else {
                 parseExpression();
@@ -1724,7 +1723,7 @@ public:
                 generateNewTokens();
             }
         }
-        cout << "After FOR loop body, done = " << done << endl; //debugging output statement
+        //cout << "After FOR loop body, done = " << done << endl; //debugging output statement
         if (!done) {
             raiseException("Missing a NEXT statement for the above FOR loop.");
             return nullptr;
@@ -1799,27 +1798,81 @@ public:
         }
     }
 
-    void mathematicalExpression() { //CREATE AST FROM THIS
-        //TDLR
-        Expression* expr;
-        Expression* left;
-        Expression* right;
-        vector<TokenInstance> tokens_leftArray;
-        vector<TokenInstance> tokens_rightArray;
+    void evaluateExp(TokenInstance lhs, OpType op, TokenInstance rhs) {
+        //FIX THIS TO DEAL WITH VARIABLE VALUES
+    }
 
-        int i = 0;
-        int start = 0;
-        int end = 1;
-        while (i < tokens.size()) {
-            //check to find operator
-            //apply BODMAS based in operator
-            //apply recursion with smaller token sub-arrays
-            //
-            try {
+    void parseExpression(vector<TokenInstance> expressionTokens) {
+        TokenInstance leftVal;
+        TokenInstance rightVal;
+        OpType op = OpType::Other;
 
+        size_t i = 1;
+        size_t maxIdx = expressionTokens.size() - 1;
+        while (i < maxIdx) {
+            if (isOperator(expressionTokens[i])) {
+                op = getArithmeticOperator(expressionTokens[i]);
+                leftVal = expressionTokens[i - 1];
+                rightVal = expressionTokens[i + 1];
+                evaluateExp(leftVal, op, rightVal);
             }
-            catch (const std::exception e) {
-                raiseException("Invalid expression.");
+            i += 2;
+        }
+
+    }
+
+    void parseBrackets(vector<TokenInstance> expressionTokens) {
+        stack<Token> tokenStack;
+        //This method determines whether or not the brackets in an expression are valid
+        //If they are, the expressions within the brackets are evaluated
+        Token t;
+        size_t i = 0;
+        vector<TokenInstance> insideBrackets;
+        while (i < expressionTokens.size() && validSyntax) {
+            t = expressionTokens[i].type;
+            if (t == Token::OpenBrace) {
+                tokenStack.push(t);
+            }
+            else if (t == Token::ClosedBrace && tokenStack.top() == Token::OpenBrace) {
+                tokenStack.pop();
+                parseExpression(insideBrackets);
+                vector<TokenInstance>().swap(insideBrackets);//deallocating memory and freeing vector
+            }
+            else if (t == Token::ClosedBrace && tokenStack.top() != Token::OpenBrace) {
+                raiseException("Closed brace ')' found without corresponding open brace '(.'");
+            }
+            else if (!tokenStack.empty()) {
+                insideBrackets.push_back(expressionTokens[i]);
+            }
+            i++;
+        }
+        if (!tokenStack.empty() && validSyntax) {
+            raiseException("Open brace '(' found without corresponding closed brace ').'");
+        }
+    }
+
+    void mathematicalExpression() { //CREATE AST FROM THIS
+        //Expression* expr;
+        //Expression* left;
+        //Expression* right;
+        vector<TokenInstance> tokens_right; //we only evaluate the expression on the RHS of the equality sign (=) because, in a variable expression, this is the only side that should contain the mathematical expressions
+
+        size_t i = 0;
+        size_t start = 0;
+        bool equalityFound = false;
+        while (i < tokens.size() && validSyntax) {
+            //check to find operator and split tokens accordingly
+            //find brackets and parse expressions within the brackets
+            //apply multiplication and division
+            //apply addition and subtraction
+            if (tokens[i].lexeme == "=") {
+                equalityFound = true;
+                start = i;
+                tokens_right.assign(tokens.begin() + start, tokens.end());
+                parseBrackets(tokens_right);
+            }
+            else if (tokens[i].lexeme == "=" && equalityFound) {
+                raiseException("This expression already has one '=' sign. Having another one makes it invalid.");
             }
             i++;
         }
@@ -2114,8 +2167,8 @@ public:
         interpreter.setLines(lines);
         interpreter.resetLineNum();
         vector<TokenInstance> tokens = interpreter.getNewTokens();
-        cout << "testInterpreter: first tokens = "; //debugging output statement
-        interpreter.printLexemes(tokens); //debugging output statement
+        //cout << "testInterpreter: first tokens = "; //debugging output statement
+        //interpreter.printLexemes(tokens); //debugging output statement
         Parser p(tokens);
 
         // Parse all lines/statements, not just the first
@@ -2614,7 +2667,7 @@ Interpreter interpreter; // Definition of the global variable
 
 int main() {
     Test test;
-    test.forLoop_invalid_Nested_ExtraNEXT();
+    test.forLoop_valid_Short();
 
     return 0;
 }
