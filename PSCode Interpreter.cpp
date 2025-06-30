@@ -509,13 +509,136 @@ public:
 
 class VariableExpression : public Statement { //putting data into declared variables
 private:
-    vector<TokenInstance> values;
-    vector<OpType> operations;
-public:
-    VariableExpression(vector<TokenInstance> values, vector<OpType> operations) {
-        this->values = values;
-        this->operations = operations;
+    vector<TokenInstance> tokens;
+    Expression* expr = nullptr;
+
+    int getPrecedence(OpType op) {
+        if (op == OpType::MULTIPLY || op == OpType::DIV) {
+            return 2;
+        }
+        else if (op == OpType::ADD || op == OpType::SUB) {
+            return 1;
+        }
+        else {
+            return 0;
+        }
     }
+
+    // Helper: Convert TokenInstance to OpType (already exists in Parser, but add here for self-containment)
+    OpType getOpType(TokenInstance t) {
+        switch (t.type) {
+        case Token::ADD: return OpType::ADD;
+        case Token::SUB: return OpType::SUB;
+        case Token::DIV: return OpType::DIV;
+        case Token::MULTIPLY: return OpType::MULTIPLY;
+        default: return OpType::Other;
+        }
+    }
+    //Helper: get operand values
+    bool isOperand(TokenInstance token) {
+        return token.type == Token::ADD || token.type == Token::SUB || token.type == Token::MULTIPLY || token.type == Token::DIV;
+    }
+    //Helper: get value of variable/lexeme
+    int getValue(TokenInstance token) {
+        return stoi(token.lexeme); // For now, only handle integer literals
+    }
+
+    Expression* buildASTFromPostfix(vector<TokenInstance> postfix) {
+        stack<Expression*> exprStack;
+        for (auto& token : postfix) {
+            if (token.type == Token::Literal) {
+                int val = getValue(token);
+                exprStack.push(new Literal(val));
+            }
+            else if (token.type == Token::Variable) {
+                // For now, treat variables as 0 (stub). You can extend this to look up variable values.
+                exprStack.push(new Literal(0));
+            }
+            else if (token.type == Token::ADD || token.type == Token::SUB ||
+                token.type == Token::MULTIPLY || token.type == Token::DIV) {
+                if (exprStack.size() < 2) return nullptr; // Error
+                Expression* right = exprStack.top();
+                exprStack.pop();
+                Expression* left = exprStack.top();
+                exprStack.pop();
+                exprStack.push(new BinaryOperation(getOpType(token), left, right));
+            }
+        }
+        if (exprStack.size() == 1) return exprStack.top();
+        return nullptr;
+    }
+
+
+    vector<TokenInstance> infixToPostfix(vector<TokenInstance> tokens) {
+        //This makes it easier to evaluate mathematical expressions by rewriting the expression so that the order of operations is explicit
+        vector<TokenInstance> output;
+        stack<TokenInstance> opStack;
+
+        for (auto& token : tokens) {
+            //It simplifies the expression by adding the variables and literals to the output vector, adding operations to the stack, and removing braces
+            if (token.type == Token::Literal || token.type == Token::Variable) {
+                output.push_back(token);
+            }
+            else if (token.type == Token::OpenBrace) {
+                opStack.push(token);
+            }
+            else if (token.type == Token::ClosedBrace) {
+                while (!opStack.empty() && opStack.top().type != Token::OpenBrace) {
+                    output.push_back(opStack.top());
+                    opStack.pop();
+                }
+                if (!opStack.empty() && opStack.top().type == Token::OpenBrace) {
+                    opStack.pop();
+                }
+            }
+            else if (isOperand(token)) {
+                OpType currOp = getOpType(token);
+                while (!opStack.empty() && isOperand(opStack.top())) {
+                    //This shuffles the order of tokens to ensure the operands are in the correct order
+                    OpType topOp = getOpType(opStack.top());
+                    if (getPrecedence(topOp) >= getPrecedence(currOp)) {
+                        output.push_back(opStack.top());
+                        opStack.pop();
+                    }
+                    else {
+                        break;
+                    }
+                }
+                opStack.push(token);
+            }
+        }
+        while (!opStack.empty()) {
+            output.push_back(opStack.top());
+            opStack.pop();
+        }
+        return output;
+    }
+
+    int mathematicalExpression() {
+        int res = 0;
+        vector<TokenInstance> postFix = infixToPostfix(tokens); //Simplify tokens and order of execution based on BODMAS
+        Expression* expr = buildASTFromPostfix(postFix); //Generate expression based on tokens
+        if (expr) {
+            res = expr->evaluate(); //Execute expression if it is valid
+        }
+        return res;
+    }
+
+public:
+    VariableExpression(vector<TokenInstance> tokens) {
+        this->tokens = tokens;
+        this->expr = nullptr;
+    }
+
+    void execute() override {
+
+    }
+
+    ~VariableExpression() {
+        delete expr;
+        expr = nullptr;
+    }
+
 };
 
 class Condition {
@@ -1761,8 +1884,7 @@ public:
             validExpression = false;
             msg = "Invalid equality operator.";
         }
-        vector<TokenInstance> values;
-        vector<OpType> operations;
+        vector<TokenInstance> exprTokens;
         size_t idx = 2;
         bool valueExpected = true;
         bool opExpected = false;
@@ -1770,14 +1892,14 @@ public:
         while (idx < size && validExpression) {
             type = tokens[idx].type;
             if (valueExpected && (isVariableORValue(type) || isBrace(type))) {
+                exprTokens.push_back(tokens[idx]);
                 valueExpected = false;
-                values.push_back(tokens[idx]);
                 if (idx < size - 1) {
                     opExpected = true;
                 }
             }
             else if (opExpected && isOperand(type)) {
-                operations.push_back(getArithmeticOperator(tokens[idx]));
+                exprTokens.push_back(tokens[idx]);
                 opExpected = false;
                 valueExpected = true;
             }
@@ -1792,89 +1914,13 @@ public:
         if (opExpected) {
             msg = "Missing an arithmetic operator.";
         }
-        this->statement = new VariableExpression(values, operations);
-        if (!validExpression) {
+
+        if (validExpression) {
+            this->statement = new VariableExpression(exprTokens);
+        }
+        else {
             raiseException(msg);
-        }
-    }
-
-    void evaluateExp(TokenInstance lhs, OpType op, TokenInstance rhs) {
-        //FIX THIS TO DEAL WITH VARIABLE VALUES
-    }
-
-    void parseExpression(vector<TokenInstance> expressionTokens) {
-        TokenInstance leftVal;
-        TokenInstance rightVal;
-        OpType op = OpType::Other;
-
-        size_t i = 1;
-        size_t maxIdx = expressionTokens.size() - 1;
-        while (i < maxIdx) {
-            if (isOperator(expressionTokens[i])) {
-                op = getArithmeticOperator(expressionTokens[i]);
-                leftVal = expressionTokens[i - 1];
-                rightVal = expressionTokens[i + 1];
-                evaluateExp(leftVal, op, rightVal);
-            }
-            i += 2;
-        }
-
-    }
-
-    void parseBrackets(vector<TokenInstance> expressionTokens) {
-        stack<Token> tokenStack;
-        //This method determines whether or not the brackets in an expression are valid
-        //If they are, the expressions within the brackets are evaluated
-        Token t;
-        size_t i = 0;
-        vector<TokenInstance> insideBrackets;
-        while (i < expressionTokens.size() && validSyntax) {
-            t = expressionTokens[i].type;
-            if (t == Token::OpenBrace) {
-                tokenStack.push(t);
-            }
-            else if (t == Token::ClosedBrace && tokenStack.top() == Token::OpenBrace) {
-                tokenStack.pop();
-                parseExpression(insideBrackets);
-                vector<TokenInstance>().swap(insideBrackets);//deallocating memory and freeing vector
-            }
-            else if (t == Token::ClosedBrace && tokenStack.top() != Token::OpenBrace) {
-                raiseException("Closed brace ')' found without corresponding open brace '(.'");
-            }
-            else if (!tokenStack.empty()) {
-                insideBrackets.push_back(expressionTokens[i]);
-            }
-            i++;
-        }
-        if (!tokenStack.empty() && validSyntax) {
-            raiseException("Open brace '(' found without corresponding closed brace ').'");
-        }
-    }
-
-    void mathematicalExpression() { //CREATE AST FROM THIS
-        //Expression* expr;
-        //Expression* left;
-        //Expression* right;
-        vector<TokenInstance> tokens_right; //we only evaluate the expression on the RHS of the equality sign (=) because, in a variable expression, this is the only side that should contain the mathematical expressions
-
-        size_t i = 0;
-        size_t start = 0;
-        bool equalityFound = false;
-        while (i < tokens.size() && validSyntax) {
-            //check to find operator and split tokens accordingly
-            //find brackets and parse expressions within the brackets
-            //apply multiplication and division
-            //apply addition and subtraction
-            if (tokens[i].lexeme == "=") {
-                equalityFound = true;
-                start = i;
-                tokens_right.assign(tokens.begin() + start, tokens.end());
-                parseBrackets(tokens_right);
-            }
-            else if (tokens[i].lexeme == "=" && equalityFound) {
-                raiseException("This expression already has one '=' sign. Having another one makes it invalid.");
-            }
-            i++;
+            this->statement = nullptr;
         }
     }
 
