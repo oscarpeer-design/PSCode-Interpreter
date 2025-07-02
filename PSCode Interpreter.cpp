@@ -148,6 +148,167 @@ public:
             return this->def;
         }
     }
+};
+
+class BooleanValue {
+private:
+    bool def = 0;
+public:
+    BooleanValue() {}
+
+    bool validBoolean(string str) {
+        return str == "1" || str == "0";
+    }
+
+    bool getBooleanValue(string str) {
+        bool isValid = validBoolean(str);
+        if (str == "1") return 1;
+        if (str == "0") return 0;
+        Exception ex = Exception(ExceptionType::Runtime, "Cannot convert the token, " + str + ", to a boolean");
+        return this->def;
+    }
+};
+
+class Stack { //Where variables will be stored
+
+private:
+    //Where variable values are stored, accessed, and altered
+    unordered_map<string, string> stringVariables;
+    unordered_map<string, int> intVariables;
+    unordered_map<string, float> floatVariables;
+    unordered_map<string, char> charVariables;
+    unordered_map<string, bool> booleanVariables;
+
+    //Where the type of each variable is stored
+    unordered_map<string, DataType> nameToType;
+
+    void raiseRuntimeException(string msg) {
+        Exception ex = Exception(ExceptionType::Runtime, msg);
+    }
+
+public:
+
+    Stack() {}
+
+    void addNewVariable(string name, DataType type) {
+
+        if (nameToType.find(name) != nameToType.end()) { //variable already exists
+            raiseRuntimeException("Variable " + name + " has already been declared");
+        }
+        else {
+            switch (type) {
+            case DataType::String:
+                stringVariables[name] = "";
+                nameToType[name] = type;
+                break;
+            case DataType::Int:
+                intVariables[name] = 0;
+                nameToType[name] = type;
+                break;
+            case DataType::Float:
+                floatVariables[name] = 0;
+                nameToType[name] = type;
+                break;
+            case DataType::Char:
+                charVariables[name] = ' ';
+                nameToType[name] = type;
+                break;
+            case DataType::Boolean:
+                booleanVariables[name] = false;
+                nameToType[name] = type;
+                break;
+            default:
+                raiseRuntimeException("The variable initialised has not got a valid type.");
+                break;
+            }
+        }
+    }
+
+    template<typename T>
+    T getVariableValue(const string& name) {
+        DataType type = DataType::UnAssigned;
+        auto it = nameToType.find(name); //getting data type
+        if (it == nameToType.end()) {
+            raiseRuntimeException("No valid variable with name, " + name + ", has been created.");
+            return 0;
+        }
+        else {
+            type = it->second;
+            switch (type) {
+            case DataType::String:
+                return stringVariables[name];
+            case DataType::Int:
+                return intVariables[name];
+            case DataType::Float:
+                return floatVariables[name];
+            case DataType::Char:
+                return charVariables[name];
+            case DataType::Boolean:
+                return booleanVariables[name] ? "true" : "false";
+            default:
+                raiseRuntimeException("Unknown data type for variable: " + name);
+                return 0;
+            }
+        }
+    }
+
+    void updateVariableValue(string name, string newValue) {
+        auto it = nameToType.find(name);
+
+        if (it == nameToType.end()) {
+            //If the variable doesn't exist, raise an exception
+            raiseRuntimeException("The variable, " + name + ", doesn't exist.");
+        }
+        else {
+            DataType type = it->second;
+
+            switch (type) {
+            case DataType::String:
+                stringVariables[name] = newValue;
+                break;
+            case DataType::Int: {
+                Integer Int;
+                if (Int.validInt(newValue)) {
+                    intVariables[name] = Int.stringToInt(newValue);
+                }
+                else {
+                    raiseRuntimeException("The value, " + newValue + ", is not a valid integer.");
+                }
+                break;
+            }
+            case DataType::Float: {
+                FloatingPoint Float;
+                if (Float.validFloat(newValue)) {
+                    floatVariables[name] = Float.stringToFloat(newValue);
+                }
+                else {
+                    raiseRuntimeException("The value, " + newValue + ", is not a valid floating point number.");
+                }
+                break;
+            }
+            case DataType::Char: {
+                Character Char;
+                if (Char.validChar(newValue)) {
+                    charVariables[name] = Char.stringToChar(newValue);
+                }
+                else {
+                    raiseRuntimeException("The value, " + newValue + ", is not a valid character.");
+                }
+                break;
+            }
+            case DataType::Boolean: {
+                BooleanValue Boolean;
+                if (Boolean.validBoolean(newValue)) {
+                    booleanVariables[name] = Boolean.getBooleanValue(newValue);
+                }
+                else {
+                    raiseRuntimeException("The value, " + newValue + ", is not a valid boolean.");
+                }
+                break;
+            }
+            }
+        }
+    }
 
 };
 
