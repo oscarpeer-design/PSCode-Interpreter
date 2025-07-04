@@ -8,6 +8,7 @@
 #include <climits>
 #include <exception>
 #include <stack>
+#include<type_traits> //used for generics and type comparisons
 //#include <variant>
 using namespace std; //This makes outputting to the console require less lines
 using std::string; //Include these lines to add strings
@@ -30,13 +31,18 @@ class Exception {
 public:
     ExceptionType exceptionType;
     string message = "Something went wrong";
+    // Static callback for code invalidation
+    static void (*invalidateCallback)();
 
     Exception(ExceptionType type, string msg) {
         this->exceptionType = type;
         this->message = msg;
         cout << message << endl;
+        raise();
     }
-
+    void raise() {
+        if (invalidateCallback) invalidateCallback();
+    }
 };
 
 class Integer {
@@ -51,7 +57,7 @@ public:
             int intVal = stoi(str);
             return true;
         }
-        catch (const std::invalid_argument& e) {
+        catch (const std::invalid_argument&) {
             return false;
         }
     }
@@ -80,7 +86,7 @@ public:
             float floatVal = stof(str);
             return true;
         }
-        catch (const std::invalid_argument& e) {
+        catch (const std::invalid_argument&) {
             return false;
         }
     }
@@ -139,7 +145,7 @@ public:
             try {
                 return str.substr(1, str.length() - 2);
             }
-            catch (const std::out_of_range& e) { //in case of empty string 
+            catch (const std::out_of_range&) { //in case of empty string 
                 return this->def;
             }
         }
@@ -152,18 +158,17 @@ public:
 
 class BooleanValue {
 private:
-    bool def = 0;
+    string def = "FALSE";
 public:
     BooleanValue() {}
 
     bool validBoolean(string str) {
-        return str == "1" || str == "0";
+        return str == "TRUE" || str == "FALSE";
     }
 
-    bool getBooleanValue(string str) {
+    string getBooleanValue(string str) {
         bool isValid = validBoolean(str);
-        if (str == "1") return 1;
-        if (str == "0") return 0;
+        if (isValid) return str;
         Exception ex = Exception(ExceptionType::Runtime, "Cannot convert the token, " + str + ", to a boolean");
         return this->def;
     }
@@ -177,7 +182,7 @@ private:
     unordered_map<string, int> intVariables;
     unordered_map<string, float> floatVariables;
     unordered_map<string, char> charVariables;
-    unordered_map<string, bool> booleanVariables;
+    unordered_map<string, string> booleanVariables;
 
     //Where the type of each variable is stored
     unordered_map<string, DataType> nameToType;
@@ -214,7 +219,7 @@ public:
                 nameToType[name] = type;
                 break;
             case DataType::Boolean:
-                booleanVariables[name] = false;
+                booleanVariables[name] = "FALSE";
                 nameToType[name] = type;
                 break;
             default:
@@ -224,32 +229,55 @@ public:
         }
     }
 
-    template<typename T>
-    T getVariableValue(const string& name) {
-        DataType type = DataType::UnAssigned;
-        auto it = nameToType.find(name); //getting data type
+    //Type-specific values. These methods have the precondition that you have already checked to see if a variable exists and is of the specified type
+
+    string getStringVariable(string name) {
+        //precondition: the variable is expected to be a string
+        auto it = nameToType.find(name);
         if (it == nameToType.end()) {
-            raiseRuntimeException("No valid variable with name, " + name + ", has been created.");
+            raiseRuntimeException("The variable, " + name + ", doesn't exist.");
+            return "";
+        }
+        return stringVariables[name];
+    }
+
+    int getIntegerVariables(string name) {
+        //precondition: the variable is expected to be an integer
+        auto it = nameToType.find(name);
+        if (it == nameToType.end()) {
+            raiseRuntimeException("The variable, " + name + ", doesn't exist.");
             return 0;
         }
-        else {
-            type = it->second;
-            switch (type) {
-            case DataType::String:
-                return stringVariables[name];
-            case DataType::Int:
-                return intVariables[name];
-            case DataType::Float:
-                return floatVariables[name];
-            case DataType::Char:
-                return charVariables[name];
-            case DataType::Boolean:
-                return booleanVariables[name] ? "true" : "false";
-            default:
-                raiseRuntimeException("Unknown data type for variable: " + name);
-                return 0;
-            }
+        return intVariables[name];
+    }
+
+    float getFloatVariables(string name) {
+        //precondition: the variable is expected to be a floating point number
+        auto it = nameToType.find(name);
+        if (it == nameToType.end()) {
+            raiseRuntimeException("The variable, " + name + ", doesn't exist.");
+            return 0;
         }
+        return floatVariables[name];
+    }
+
+    char getCharVariables(string name) {
+        //precondition: the variable is expected to be an integer
+        auto it = nameToType.find(name);
+        if (it == nameToType.end()) {
+            raiseRuntimeException("The variable, " + name + ", doesn't exist.");
+            return ' ';
+        }
+        return charVariables[name];
+    }
+
+    string getBooleanVariables(string name) {
+        auto it = nameToType.find(name);
+        if (it == nameToType.end()) {
+            raiseRuntimeException("The variable, " + name + ", doesn't exist.");
+            return "FALSE";
+        }
+        return booleanVariables[name];
     }
 
     void updateVariableValue(string name, string newValue) {
@@ -299,7 +327,7 @@ public:
             case DataType::Boolean: {
                 BooleanValue Boolean;
                 if (Boolean.validBoolean(newValue)) {
-                    booleanVariables[name] = Boolean.getBooleanValue(newValue);
+                    booleanVariables[name] = newValue;
                 }
                 else {
                     raiseRuntimeException("The value, " + newValue + ", is not a valid boolean.");
@@ -308,6 +336,18 @@ public:
             }
             }
         }
+    }
+
+    DataType getType(string name) {
+        DataType type = DataType::UnAssigned;
+        auto it = nameToType.find(name);
+        if (it != nameToType.end()) {
+            type = it->second;
+        }
+        else {
+            raiseRuntimeException("Variable, " + name + ", has not been declared.");
+        }
+        return type;
     }
 
 };
@@ -403,24 +443,31 @@ public:
     }
 
     bool isLiteral(string element) {
-        Integer Int = Integer();
-        bool isInt = Int.validInt(element);
-        if (isInt) {
+        Integer Int;
+        bool isLiteral = false;
+
+        isLiteral = Int.validInt(element);
+        if (isLiteral) {
             return true;
         }
-        FloatingPoint Float = FloatingPoint();
-        bool isFloat = Float.validFloat(element);
-        if (isFloat) {
+        FloatingPoint Float;
+        isLiteral = Float.validFloat(element);
+        if (isLiteral) {
             return true;
         }
-        Character Char = Character();
-        bool isChar = Char.validChar(element);
-        if (isChar) {
+        Character Char;
+        isLiteral = Char.validChar(element);
+        if (isLiteral) {
             return true;
         }
-        StringLiteral String = StringLiteral();
-        bool isString = String.validString(element);
-        if (isString) {
+        StringLiteral String;
+        isLiteral = String.validString(element);
+        if (isLiteral) {
+            return true;
+        }
+        BooleanValue Boolean;
+        isLiteral = Boolean.validBoolean(element);
+        if (isLiteral) {
             return true;
         }
         return false;
@@ -672,6 +719,7 @@ class VariableExpression : public Statement { //putting data into declared varia
 private:
     vector<TokenInstance> tokens;
     Expression* expr = nullptr;
+    Stack VariablesStack;
 
     int getPrecedence(OpType op) {
         if (op == OpType::MULTIPLY || op == OpType::DIV) {
@@ -702,6 +750,18 @@ private:
     //Helper: get value of variable/lexeme
     int getValue(TokenInstance token) {
         return stoi(token.lexeme); // For now, only handle integer literals
+        Integer Int;
+        FloatingPoint Float;
+        if (token.type == Token::Literal) {
+            return Int.stringToInt(token.lexeme);
+        }
+        //assume type = Token::Variable
+        DataType type = VariablesStack.getType(token.lexeme);
+        if (type == DataType::Int) {
+            return VariablesStack.getIntegerVariables(token.lexeme);
+        }
+        raiseRuntimeException("Type mismatch for token, " + token.lexeme + ". An integer variable was expected.");
+        return 0;
     }
 
     Expression* buildASTFromPostfix(vector<TokenInstance> postfix) {
@@ -728,7 +788,6 @@ private:
         if (exprStack.size() == 1) return exprStack.top();
         return nullptr;
     }
-
 
     vector<TokenInstance> infixToPostfix(vector<TokenInstance> tokens) {
         //This makes it easier to evaluate mathematical expressions by rewriting the expression so that the order of operations is explicit
@@ -966,9 +1025,9 @@ public:
 
 struct BranchNode {
     //ConditionalStatement condition; // For IF and ELSE IF; ignored for ELSE
-    Branch* current;
-    BranchNode* nested;
-    BranchNode* nextBranch;
+    Branch* current = nullptr;
+    BranchNode* nested = nullptr;
+    BranchNode* nextBranch = nullptr;
     bool isElseBranch = false;          // True if this is an ELSE branch
 
     BranchNode() = default;
@@ -1196,6 +1255,14 @@ public:
 
     void resetLineNum() {
         this->currentLineNum = 0;
+    }
+
+    void invalidateCode() {
+        this->validCode = false;
+    }
+
+    bool isValidCode() {
+        return this->validCode;
     }
 
     vector<TokenInstance> getNewTokens() {
@@ -2379,7 +2446,7 @@ public:
         Parser p(tokens);
 
         // Parse all lines/statements, not just the first
-        while (p.syntaxValid() && !tokens.empty()) {
+        while (p.syntaxValid() && !tokens.empty() && interpreter.isValidCode()) {
             p.parseExpression();
             if (!p.syntaxValid()) break;
             tokens = interpreter.getNewTokens();
@@ -2870,11 +2937,19 @@ public:
 
 };
 
+void (*Exception::invalidateCallback)() = nullptr;
+
 Interpreter interpreter; // Definition of the global variable
 
+void invalidateCode() {
+    interpreter.invalidateCode();
+    exit(EXIT_FAILURE); //stops code from running any further when an exception is encountered
+    //This method is only to be called when an Exception occurs
+}
+
 int main() {
+    Exception::invalidateCallback = &invalidateCode;
     Test test;
     test.forLoop_valid_Short();
-
     return 0;
 }
