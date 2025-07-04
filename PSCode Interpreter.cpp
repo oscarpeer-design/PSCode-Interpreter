@@ -27,6 +27,13 @@ struct TokenInstance {
     TokenInstance(Token t = Token::Literal, string l = "") : type(t), lexeme(l) {} //initialise values
 };
 
+struct Value {
+    DataType type;
+    int intValue;
+    float floatValue;
+    Value(DataType t = DataType::Int, int intVal = 0, float floatVal = 0) : type(t), intValue(intVal), floatValue(floatVal) {} //Initialise values
+};
+
 class Exception {
 public:
     ExceptionType exceptionType;
@@ -241,7 +248,7 @@ public:
         return stringVariables[name];
     }
 
-    int getIntegerVariables(string name) {
+    int getIntegerVariable(string name) {
         //precondition: the variable is expected to be an integer
         auto it = nameToType.find(name);
         if (it == nameToType.end()) {
@@ -251,7 +258,7 @@ public:
         return intVariables[name];
     }
 
-    float getFloatVariables(string name) {
+    float getFloatVariable(string name) {
         //precondition: the variable is expected to be a floating point number
         auto it = nameToType.find(name);
         if (it == nameToType.end()) {
@@ -261,7 +268,7 @@ public:
         return floatVariables[name];
     }
 
-    char getCharVariables(string name) {
+    char getCharVariable(string name) {
         //precondition: the variable is expected to be an integer
         auto it = nameToType.find(name);
         if (it == nameToType.end()) {
@@ -271,7 +278,7 @@ public:
         return charVariables[name];
     }
 
-    string getBooleanVariables(string name) {
+    string getBooleanVariable(string name) {
         auto it = nameToType.find(name);
         if (it == nameToType.end()) {
             raiseRuntimeException("The variable, " + name + ", doesn't exist.");
@@ -622,17 +629,19 @@ class Expression : public Statement {
     //The virtual keyword implements polymorphism and inheritance easily. It states that a method or attribute can be overridden.
 public:
     virtual ~Expression() {}
-    virtual int evaluate() const = 0;
+    virtual Value evaluate() const = 0;
     //The const terminator is put after the method signature to tell the compiler that this method doesn't modify the state of the object.
     //The override terminator ensures a class correctly overrides a virtual method from a base class.
 };
 
 class Literal :public Expression { //This is a leaf node that can represent numbers, and be combined with BinaryOperation to hold expressions
-    int value;
+    Value value;
 public:
-    Literal(int val) : value(val) {}
+    //The return values provided by the Literal class vary based on whether or not a floating point value or integer is required
+    Literal(int val) : value(DataType::Int, val, 0.0f) {}
+    Literal(float val) : value(DataType::Float, 0, val) {}
     //This type of initialisation is called an initialiser list. It is a memory efficient and fast way of initialising class members.
-    int evaluate() const override {
+    Value evaluate() const override {
         return value;
     }
 };
@@ -641,31 +650,55 @@ class BinaryOperation : public Expression {
     OpType op;
     Expression* left;
     Expression* right;
-    //Defining leaf-nodes to store numbers
+    //Defining leaf-nodes to store Value structs
+
 public:
     BinaryOperation(OpType op, Expression* left, Expression* right) : op(op), left(left), right(right) {}
     //Initialising virtual constructor
-    int evaluate() const override { //override keyword shows overriding class method by child class
-        int evaluation = 0;
-        int l = left->evaluate();
-        int r = right->evaluate();
+    Value evaluate() const override { //override keyword shows overriding class method by child class
+        Value l = left->evaluate();
+        Value r = right->evaluate();
+        DataType resType = l.type;
+        Value defaultValue = Value(resType, 0, 0);
+        Value evaluation;
+        if (l.type != r.type) {
+            //raiseRuntimeException("The sum contains two values that do not have the same data type.");
+            return defaultValue;
+        }
+        int intRes = 0;
+        float floatRes = 0;
         switch (op) {
         case OpType::ADD:
-            evaluation = l + r;
-            break;
-        case OpType::SUB:
-            evaluation = l - r;
-            break;
-        case OpType::DIV:
-            if (r == 0) {
-                evaluation = 0;
+            if (resType == DataType::Int) {
+                intRes = l.intValue + r.intValue;
             }
             else {
-                evaluation = l / r;
+                floatRes = l.floatValue + r.floatValue;
+            }
+            break;
+        case OpType::SUB:
+            if (resType == DataType::Int) {
+                intRes = l.intValue - r.intValue;
+            }
+            else {
+                floatRes = l.floatValue - r.floatValue;
+            }
+            break;
+        case OpType::DIV:
+            if (l.type == DataType::Int && r.intValue != 0) {
+                intRes = l.intValue / r.intValue;
+            }
+            else if (r.floatValue != 0) {
+                floatRes = l.floatValue / r.floatValue;
             }
             break;
         case OpType::MULTIPLY:
-            evaluation = l * r;
+            if (l.type == DataType::Int) {
+                intRes = l.intValue * r.intValue;
+            }
+            else {
+                floatRes = l.intValue * r.floatValue;
+            }
             break;
         }
         return evaluation;
@@ -758,7 +791,7 @@ private:
         //assume type = Token::Variable
         DataType type = VariablesStack.getType(token.lexeme);
         if (type == DataType::Int) {
-            return VariablesStack.getIntegerVariables(token.lexeme);
+            return VariablesStack.getIntegerVariable(token.lexeme);
         }
         raiseRuntimeException("Type mismatch for token, " + token.lexeme + ". An integer variable was expected.");
         return 0;
@@ -834,8 +867,8 @@ private:
         return output;
     }
 
-    int mathematicalExpression() {
-        int res = 0;
+    Value mathematicalExpression() {
+        Value res;
         vector<TokenInstance> postFix = infixToPostfix(tokens); //Simplify tokens and order of execution based on BODMAS
         Expression* expr = buildASTFromPostfix(postFix); //Generate expression based on tokens
         if (expr) {
@@ -851,7 +884,24 @@ public:
     }
 
     void execute() override {
+        if (tokens.size() >= 2) {
+            string lhsVarName = tokens[0].lexeme;
+            DataType lhsVarType = VariablesStack.getType(lhsVarName);
+            Value res;
+            switch (lhsVarType) {
+            case DataType::Int:
+                res = mathematicalExpression();
+                VariablesStack.updateVariableValue(lhsVarName, to_string(res.intValue));
+                break;
+            case DataType::Float:
 
+                break;
+            default:
+                //Error message
+                break;
+            }
+
+        }
     }
 
     ~VariableExpression() {
@@ -2175,7 +2225,7 @@ public:
             ),
             new Literal(5)
         );
-        cout << "Result of 5 * ( (10 + 2) / 6 ) = " << expr->evaluate();
+        cout << "Result of 5 * ( (10 + 2) / 6 ) = " << expr->evaluate().intValue;
         delete expr;
         /*In C++ memory is manually allocated. Therefore, objects must be deleted once they go out of scope to avoid memory leaks. Memory leaks are errors that occur
         when a program manually allocates memory but fails to free memory when it is no longer needed. Preventing memory leaks improves performance, prevents
