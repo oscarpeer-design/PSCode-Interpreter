@@ -345,6 +345,35 @@ public:
         }
     }
 
+    string getValueAsString(string name) {
+        string res = "";
+        auto it = nameToType.find(name);
+        bool variableExists = it == nameToType.end();
+        if (!variableExists) {
+            raiseRuntimeException("The variable, " + name + ", has not been defined.");
+            return res;
+        }
+        DataType type = it->second;
+        switch (type) {
+        case DataType::Int:
+            res = to_string(getIntegerVariable(name));
+            break;
+        case DataType::Float:
+            res = to_string(getFloatVariable(name));
+            break;
+        case DataType::Char:
+            res = to_string(getCharVariable(name));
+            break;
+        case DataType::String:
+            res = getStringVariable(name);
+            break;
+        default:
+            res = getBooleanVariable(name);
+            break;
+        }
+        return res;
+    }
+
     DataType getType(string name) {
         DataType type = DataType::UnAssigned;
         auto it = nameToType.find(name);
@@ -704,7 +733,8 @@ public:
         return evaluation;
     }
 };
-//template <typename T> //create generic type template for variables
+Stack VariablesStack; // Global variable used for storing variable data
+
 class Assignment : public Statement {
 private:
     DataType type;
@@ -724,7 +754,9 @@ public:
     void alterType(DataType type) {//N.B. THIS SHOULD BE ONLY CALLED BY THE PARSER
         this->type = type;
     }
-
+    void execute() override {
+        VariablesStack.addNewVariable(this->name, this->type);
+    }
 };
 
 class OutputStatement : public Statement {
@@ -738,11 +770,22 @@ public:
     size_t numVariables() {
         return outputValues.size();
     }
+
+    string getValue(TokenInstance t) {
+        string res = "";
+        if (t.type == Token::Literal) {
+            return t.lexeme;
+        }
+        string name = t.lexeme;
+        res = VariablesStack.getValueAsString(name);
+        return res;
+    }
+
     void printValues() override {
         for (const auto& token : outputValues) {
             //for (TokenInstance token: outputValues) {
                 //cout << "valid";
-            cout << token.lexeme;
+            cout << getValue(token);
         }
         cout << endl;
     }
@@ -752,7 +795,6 @@ class VariableExpression : public Statement { //putting data into declared varia
 private:
     vector<TokenInstance> tokens;
     Expression* expr = nullptr;
-    Stack VariablesStack;
 
     int getPrecedence(OpType op) {
         if (op == OpType::MULTIPLY || op == OpType::DIV) {
@@ -962,10 +1004,18 @@ public:
         this->op = op;
     }
 
+    string getValue(TokenInstance t) {
+        if (t.type == Token::Literal) {
+            return t.lexeme;
+        }
+        //If it is a variable
+        return VariablesStack.getValueAsString(t.lexeme);
+    }
+
     bool evaluateCondition() {
         bool result = false;
-        string lhsValue = this->lhs.lexeme;
-        string rhsValue = this->rhs.lexeme;
+        string lhsValue = getValue(this->lhs);
+        string rhsValue = getValue(this->rhs);
         //get integer and float values for lhs and rhs
 
         bool valid = false;
@@ -2989,7 +3039,7 @@ public:
 
 void (*Exception::invalidateCallback)() = nullptr;
 
-Interpreter interpreter; // Definition of the global variable
+Interpreter interpreter; // Definition of the global 
 
 void invalidateCode() {
     interpreter.invalidateCode();
