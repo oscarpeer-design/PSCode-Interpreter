@@ -27,11 +27,11 @@ struct TokenInstance {
     TokenInstance(Token t = Token::Literal, string l = "") : type(t), lexeme(l) {} //initialise values
 };
 
-struct Value {
+struct Numeric {
     DataType type;
     int intValue;
     float floatValue;
-    Value(DataType t = DataType::Int, int intVal = 0, float floatVal = 0) : type(t), intValue(intVal), floatValue(floatVal) {} //Initialise values
+    Numeric(DataType t = DataType::Int, int intVal = 0, float floatVal = 0) : type(t), intValue(intVal), floatValue(floatVal) {} //Initialise values
 };
 
 class Exception {
@@ -443,6 +443,7 @@ public:
     }
 
     bool isDigit(char c) {
+        //Determines whether or not a character is a digit using std library method
         return isdigit(c);
     }
 
@@ -570,6 +571,13 @@ public:
                 lexemes.push_back(string(1, line[i]));
                 i++;
             }
+            //Handle negative numbers
+            else if (line[i] == '-' && isdigit(line[i + 1]) && i + 1 < n) {
+                size_t start = i;
+                i++; //increment i to reflect minus sign
+                while (i < n && (isdigit(line[i]) || line[i] == '.')) i++; //support decimals
+                lexemes.push_back(line.substr(start, i - start));
+            }
             // Handle words (identifiers, keywords)
             else {
                 size_t start = i;
@@ -658,19 +666,19 @@ class Expression : public Statement {
     //The virtual keyword implements polymorphism and inheritance easily. It states that a method or attribute can be overridden.
 public:
     virtual ~Expression() {}
-    virtual Value evaluate() const = 0;
+    virtual Numeric evaluate() const = 0;
     //The const terminator is put after the method signature to tell the compiler that this method doesn't modify the state of the object.
     //The override terminator ensures a class correctly overrides a virtual method from a base class.
 };
 
 class Literal :public Expression { //This is a leaf node that can represent numbers, and be combined with BinaryOperation to hold expressions
-    Value value;
+    Numeric value;
 public:
     //The return values provided by the Literal class vary based on whether or not a floating point value or integer is required
     Literal(int val) : value(DataType::Int, val, 0.0f) {}
     Literal(float val) : value(DataType::Float, 0, val) {}
     //This type of initialisation is called an initialiser list. It is a memory efficient and fast way of initialising class members.
-    Value evaluate() const override {
+    Numeric evaluate() const override {
         return value;
     }
 };
@@ -684,12 +692,12 @@ class BinaryOperation : public Expression {
 public:
     BinaryOperation(OpType op, Expression* left, Expression* right) : op(op), left(left), right(right) {}
     //Initialising virtual constructor
-    Value evaluate() const override { //override keyword shows overriding class method by child class
-        Value l = left->evaluate();
-        Value r = right->evaluate();
+    Numeric evaluate() const override { //override keyword shows overriding class method by child class
+        Numeric l = left->evaluate();
+        Numeric r = right->evaluate();
         DataType resType = l.type;
-        Value defaultValue = Value(resType, 0, 0);
-        Value evaluation;
+        Numeric defaultValue = Numeric(resType, 0, 0);
+        Numeric evaluation;
         if (l.type != r.type) {
             //raiseRuntimeException("The sum contains two values that do not have the same data type.");
             return defaultValue;
@@ -909,12 +917,81 @@ private:
         return output;
     }
 
-    Value mathematicalExpression() {
-        Value res;
+    Numeric mathematicalExpression() {
+        Numeric res;
         vector<TokenInstance> postFix = infixToPostfix(tokens); //Simplify tokens and order of execution based on BODMAS
         Expression* expr = buildASTFromPostfix(postFix); //Generate expression based on tokens
         if (expr) {
             res = expr->evaluate(); //Execute expression if it is valid
+        }
+        return res;
+    }
+
+    bool isString(string str) {
+        StringLiteral String;
+        return String.validString(str);
+    }
+
+    vector<TokenInstance> removeADDTokens() {
+        vector<TokenInstance> newTokens;
+        if (tokens.size() > 2) {
+            size_t i = 2;
+            while (i < tokens.size()) {
+                if (tokens[i].type != Token::ADD) { // skip ADD tokens
+                    newTokens.push_back(tokens[i]);
+                }
+            }
+        }
+        else {
+            newTokens.push_back(tokens[2]);
+        }
+        return newTokens;
+    }
+
+    string stringExpression(vector<TokenInstance> adjustedTokens) {
+        string res = "";
+        bool validExpr = true;
+        string msg = "";
+        size_t idx = 0;
+        TokenInstance t;
+        DataType type = DataType::String;
+        string currentString = "";
+
+        while (idx < adjustedTokens.size() && validExpr) {
+            t = adjustedTokens[idx];
+            if (t.type == Token::Literal) {
+                validExpr = isString(t.lexeme);
+                if (!validExpr) {
+                    msg = "The literal, " + t.lexeme + ", is not a valid string and does not belong in a string expression.";
+                }
+                else {
+                    currentString = t.lexeme;
+                }
+            }
+
+            else if (t.type == Token::Variable) {
+                type = VariablesStack.getType(t.lexeme);
+                if (type != DataType::String) {
+                    validExpr = false;
+                    msg = "The variable, " + t.lexeme + ", is not a string variable and does not belong in a string expression.";
+                }
+                else {
+                    currentString = VariablesStack.getStringVariable(t.lexeme);
+                }
+            }
+
+            else if (t.type == Token::DIV || t.type == Token::MULTIPLY || t.type == Token::SUB) {
+                validExpr = false;
+                msg = "The operator, " + t.lexeme + ", was not expected in a string expression.";
+            }
+
+            else {
+                res = res + currentString;
+            }
+            idx++;
+        }
+        if (!validExpr) {
+            raiseRuntimeException(msg);
         }
         return res;
     }
@@ -929,18 +1006,29 @@ public:
         if (tokens.size() >= 2) {
             string lhsVarName = tokens[0].lexeme;
             DataType lhsVarType = VariablesStack.getType(lhsVarName);
-            Value res;
-            switch (lhsVarType) {
-            case DataType::Int:
-                res = mathematicalExpression();
-                VariablesStack.updateVariableValue(lhsVarName, to_string(res.intValue));
-                break;
-            case DataType::Float:
+            Numeric numericRes;
+            if (lhsVarType == DataType::Int) {
+                numericRes = mathematicalExpression();
+                VariablesStack.updateVariableValue(lhsVarName, to_string(numericRes.intValue));
+            }
 
-                break;
-            default:
-                //Error message
-                break;
+            else if (lhsVarType == DataType::Float) {
+                numericRes = mathematicalExpression();
+                VariablesStack.updateVariableValue(lhsVarName, to_string(numericRes.floatValue));
+            }
+
+            else if (lhsVarType == DataType::String) {
+                vector<TokenInstance> adjustedTokens = removeADDTokens();
+                string stringRes = stringExpression(adjustedTokens);
+                VariablesStack.updateVariableValue(lhsVarName, stringRes);
+            }
+
+            else if (lhsVarType == DataType::Char) {
+                //For characters, the ascii values are added, subtracted, multiplied, and divided
+            }
+
+            else { //boolean variables
+                //For booleans, mathematical operations are performed as usual. If the result is non-zero, it is coerced back to TRUE, and if the result is zero, it is coerced to FALSE.
             }
 
         }
