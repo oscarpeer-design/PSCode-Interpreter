@@ -803,6 +803,7 @@ class VariableExpression : public Statement { //putting data into declared varia
 private:
     vector<TokenInstance> tokens;
     Expression* expr = nullptr;
+    DataType expectedType = DataType::Int;
 
     int getPrecedence(OpType op) {
         if (op == OpType::MULTIPLY || op == OpType::DIV) {
@@ -831,10 +832,9 @@ private:
         return token.type == Token::ADD || token.type == Token::SUB || token.type == Token::MULTIPLY || token.type == Token::DIV;
     }
     //Helper: get value of variable/lexeme
-    int getValue(TokenInstance token) {
-        return stoi(token.lexeme); // For now, only handle integer literals
+    int getIntValue(TokenInstance token) {
+        //return stoi(token.lexeme); // For now, only handle integer literals
         Integer Int;
-        FloatingPoint Float;
         if (token.type == Token::Literal) {
             return Int.stringToInt(token.lexeme);
         }
@@ -847,19 +847,66 @@ private:
         return 0;
     }
 
+    float getFloatValue(TokenInstance token) {
+        FloatingPoint Float;
+        if (token.type == Token::Literal) {
+            return Float.stringToFloat(token.lexeme);
+        }
+        DataType type = VariablesStack.getType(token.lexeme);
+        if (type == DataType::Float) {
+            return VariablesStack.getFloatVariable(token.lexeme);
+        }
+        raiseRuntimeException("Type mismatch for token, " + token.lexeme + ". A floating point variable was expected.");
+        return 0;
+    }
+
+    int getValue(TokenInstance token) {
+        //This gets all values for Variables/Literals that aren't floating point or string. The values are coerced to integers
+        if (expectedType == DataType::Int) {
+            return getIntValue(token);
+        }
+        else if (expectedType == DataType::Char) {
+            char c = ' ';
+            if (token.type == Token::Literal) {
+                Character Char;
+                c = Char.stringToChar(token.lexeme);
+            }
+            else if (token.type == Token::Variable) {
+                c = VariablesStack.getCharVariable(token.lexeme);
+            }
+            return (int)c; //convert back to integer
+        }
+        else if (expectedType == DataType::Boolean) {
+            string boolString = "FALSE";
+            if (token.type == Token::Literal) {
+                BooleanValue Boolean;
+                boolString = Boolean.getBooleanValue(token.lexeme);
+            }
+            else if (token.type == Token::Variable) {
+                boolString = VariablesStack.getBooleanVariable(token.lexeme);
+            }
+            if (boolString == "TRUE") {
+                return 1;
+            }
+            return 0;
+        }
+        return 0;
+    }
+
     Expression* buildASTFromPostfix(vector<TokenInstance> postfix) {
         stack<Expression*> exprStack;
         for (auto& token : postfix) {
-            if (token.type == Token::Literal) {
-                int val = getValue(token);
-                exprStack.push(new Literal(val));
+            if (token.type == Token::Literal || token.type == Token::Variable) {
+                if (expectedType == DataType::Int) {
+                    int val = getIntValue(token);
+                    exprStack.push(new Literal(val));
+                }
+                else if (expectedType == DataType::Float) {
+                    float val = getFloatValue(token);
+                    exprStack.push(new Literal(val));
+                }
             }
-            else if (token.type == Token::Variable) {
-                // For now, treat variables as 0 (stub). You can extend this to look up variable values.
-                exprStack.push(new Literal(0));
-            }
-            else if (token.type == Token::ADD || token.type == Token::SUB ||
-                token.type == Token::MULTIPLY || token.type == Token::DIV) {
+            else if (token.type == Token::ADD || token.type == Token::SUB || token.type == Token::MULTIPLY || token.type == Token::DIV) {
                 if (exprStack.size() < 2) return nullptr; // Error
                 Expression* right = exprStack.top();
                 exprStack.pop();
@@ -917,12 +964,62 @@ private:
         return output;
     }
 
+    Expression* buildAST_NonNumeric(vector<TokenInstance> postfix) {
+        stack<Expression*> exprStack;
+        Character Char;
+        int val = 0;
+        for (auto& token : postfix) {
+            if (token.type == Token::Literal || token.type == Token::Variable) {
+                val = getValue(token);
+                exprStack.push(new Literal(val));
+            }
+            else if (token.type == Token::ADD || token.type == Token::SUB || token.type == Token::MULTIPLY || token.type == Token::DIV) {
+                if (exprStack.size() < 2) return nullptr; // Error
+                Expression* right = exprStack.top();
+                exprStack.pop();
+                Expression* left = exprStack.top();
+                exprStack.pop();
+                exprStack.push(new BinaryOperation(getOpType(token), left, right));
+            }
+        }
+        if (exprStack.size() == 1) return exprStack.top();
+        return nullptr;
+    }
+
     Numeric mathematicalExpression() {
         Numeric res;
         vector<TokenInstance> postFix = infixToPostfix(tokens); //Simplify tokens and order of execution based on BODMAS
         Expression* expr = buildASTFromPostfix(postFix); //Generate expression based on tokens
         if (expr) {
             res = expr->evaluate(); //Execute expression if it is valid
+        }
+        return res;
+    }
+
+    char characterExpression() {
+        Numeric result;
+        vector<TokenInstance> postFix = infixToPostfix(tokens);
+        Expression* expr = buildAST_NonNumeric(postFix);
+        if (expr) {
+            result = expr->evaluate();
+        }
+        char res = result.intValue;
+        return res;
+    }
+
+    string booleanExpression() {
+        string res = "FALSE";
+        Numeric result;
+        vector<TokenInstance> postFix = infixToPostfix(tokens);
+        Expression* expr = buildAST_NonNumeric(postFix);
+        if (expr) {
+            result = expr->evaluate();
+        }
+        if (result.intValue > 0) {
+            res = "TRUE";
+        }
+        else {
+            res = "FALSE";
         }
         return res;
     }
@@ -936,8 +1033,10 @@ private:
         vector<TokenInstance> newTokens;
         if (tokens.size() > 2) {
             size_t i = 2;
+            Token t;
             while (i < tokens.size()) {
-                if (tokens[i].type != Token::ADD) { // skip ADD tokens
+                t = tokens[i].type;
+                if (t != Token::ADD && t != Token::OpenBrace && t != Token::ClosedBrace) { // skip ADD tokens and braces
                     newTokens.push_back(tokens[i]);
                 }
             }
@@ -1000,35 +1099,44 @@ public:
     VariableExpression(vector<TokenInstance> tokens) {
         this->tokens = tokens;
         this->expr = nullptr;
+        this->expectedType = DataType::Int;
     }
 
     void execute() override {
         if (tokens.size() >= 2) {
             string lhsVarName = tokens[0].lexeme;
             DataType lhsVarType = VariablesStack.getType(lhsVarName);
+            this->expectedType = lhsVarType;
+
+            //Declaring variables
             Numeric numericRes;
-            if (lhsVarType == DataType::Int) {
+            vector<TokenInstance> adjustedTokens;
+            string stringRes;
+            char charRes = ' ';
+            string boolRes = "FALSE";
+
+            switch (lhsVarType) {
+            case DataType::Int:
                 numericRes = mathematicalExpression();
                 VariablesStack.updateVariableValue(lhsVarName, to_string(numericRes.intValue));
-            }
-
-            else if (lhsVarType == DataType::Float) {
+                break;
+            case DataType::Float:
                 numericRes = mathematicalExpression();
                 VariablesStack.updateVariableValue(lhsVarName, to_string(numericRes.floatValue));
-            }
-
-            else if (lhsVarType == DataType::String) {
-                vector<TokenInstance> adjustedTokens = removeADDTokens();
-                string stringRes = stringExpression(adjustedTokens);
+                break;
+            case DataType::String:
+                adjustedTokens = removeADDTokens();
+                stringRes = stringExpression(adjustedTokens);
                 VariablesStack.updateVariableValue(lhsVarName, stringRes);
-            }
-
-            else if (lhsVarType == DataType::Char) {
+                break;
+            case DataType::Char:
                 //For characters, the ascii values are added, subtracted, multiplied, and divided
-            }
-
-            else { //boolean variables
+                charRes = characterExpression();
+                break;
+            default: //boolean variables
                 //For booleans, mathematical operations are performed as usual. If the result is non-zero, it is coerced back to TRUE, and if the result is zero, it is coerced to FALSE.
+                boolRes = booleanExpression();
+                break;
             }
 
         }
