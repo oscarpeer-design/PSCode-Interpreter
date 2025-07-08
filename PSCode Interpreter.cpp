@@ -44,10 +44,26 @@ public:
     Exception(ExceptionType type, string msg) {
         this->exceptionType = type;
         this->message = msg;
-        cout << message << endl;
         raise();
     }
+
+    string getExceptionName() {
+        switch (exceptionType) {
+        case ExceptionType::Lexical:
+            return "A lexical error occurred.";
+            break;
+        case ExceptionType::Syntactical:
+            return "A syntactical error occurred.";
+            break;
+        default: //Runtime exception
+            return "A runtime exception occurred.";
+            break;
+        }
+    }
+
     void raise() {
+        cout << getExceptionName() << endl;
+        cout << message << endl;
         if (invalidateCallback) invalidateCallback();
     }
 };
@@ -1816,6 +1832,10 @@ public:
         }
     }
 
+    Statement* getExecutableStatement() {
+        return this->statement;
+    }
+
     DataType getType(TokenInstance t) {
         DataType dType = DataType::UnAssigned;
         switch (t.type) {
@@ -2477,22 +2497,6 @@ public:
         when a program manually allocates memory but fails to free memory when it is no longer needed. Preventing memory leaks improves performance, prevents
         unpredictable behaviour, and avoids memory clashes.*/
     }
-    void parsedArithmetic_validBrackets() {
-        //The goal here is to recreate the above expression, but with a series of tokens
-        vector<TokenInstance> tokens = {
-            TokenInstance {Token::Literal, "5"},
-            TokenInstance {Token::MULTIPLY, "*"},
-            TokenInstance {Token::OpenBrace, "("},
-            TokenInstance {Token::OpenBrace, "("},
-            TokenInstance {Token::Literal, "10"},
-            TokenInstance {Token::ADD, "+"},
-            TokenInstance {Token::Literal, "2"},
-            TokenInstance {Token::ClosedBrace, ")"},
-            TokenInstance {Token::DIV, "/"},
-            TokenInstance {Token::Literal, "6"},
-            TokenInstance {Token::ClosedBrace, ")"}
-        };
-    }
 
     void outputStatement_valid() { // passes (works)
         vector<TokenInstance> tokens = {
@@ -2539,7 +2543,7 @@ public:
             TokenInstance {Token::SET, "SET"},
             TokenInstance {Token::Variable, "var"},
             TokenInstance {Token::AS, "AS"},
-            TokenInstance {Token::Int, "Integer"}
+            TokenInstance {Token::Int, "int"}
         };
         Parser p(tokens);
         p.assignmentStatement();
@@ -2570,7 +2574,7 @@ public:
             TokenInstance {Token::SET, "SET"},
             TokenInstance {Token::Variable, "var"},
             TokenInstance {Token::AS, "AS"},
-            TokenInstance {Token::Int, "Integer"},
+            TokenInstance {Token::Int, "int"},
             TokenInstance {Token::EqualityOp, "="},
             TokenInstance {Token::Literal, "69"}
             //SET var AS Integer = 69
@@ -2748,6 +2752,9 @@ public:
             tokens = interpreter.getNewTokens();
             p.setNewTokens(tokens);
         }
+        Statement* statement = p.getExecutableStatement();
+        statement->execute();
+        delete statement;
     }
 
     void ifStatement_valid_Short() { // passes (works)
@@ -3231,6 +3238,229 @@ public:
         testInterpreter(lines);
     }
 
+    void mathematicalExpression_valid_Short() {
+        vector<string> lines = {
+        "SET x AS int",
+        "SET y AS int",
+        "x = 10",
+        "y = 20",
+        "x = x + y",
+        "DISPLAY x" };
+        testInterpreter(lines);
+    }
+
+    void mathematicalExpression_valid_MultipleOperands() {
+        vector<string> lines = {
+        "SET a AS float",
+        "SET b AS float",
+        "SET c AS float",
+        "a = 1.5",
+        "b = -2",
+        "a = b * 7.2 - a / b + 7.2",
+        "DISPLAY a" };
+        testInterpreter(lines);
+    }
+
+    void mathematicalExpression_valid_BODMAS() {
+        vector<string> lines = {
+        "SET a AS int",
+        "SET b AS int",
+        "SET c AS int",
+        "a = 15",
+        "b = -2",
+        "c = 7",
+        "a = (b - c) * a - a / (b + c)" };
+        testInterpreter(lines);
+    }
+
+    void mathematicalExpression_invalid_undeclaredVariable() {
+        vector<string> lines = {
+        "SET x AS int",
+        "SET y AS int",
+        "x = 10",
+        "y = 20",
+        "z = x + y" };
+        testInterpreter(lines);
+    }
+
+    void mathematicalExpression_invalid_typeError() {
+        vector<string> lines = {
+        "SET a AS float",
+        "SET b AS float",
+        "SET c AS int",
+        "a = 1.5",
+        "b = -2",
+        "c = 7",
+        "a = b * c - a / b + c" };
+        testInterpreter(lines);
+    }
+
+    void mathematicalExpression_invalid_invalidBrackets() {
+        vector<string> lines = {
+         "SET a AS int",
+         "SET b AS int",
+         "SET c AS int",
+         "a = 15",
+         "b = -2",
+         "c = 7",
+         "a = (b - c) * a - a / (b + c" };
+        testInterpreter(lines);
+    }
+
+    void stringExpression_valid_Short() {
+        vector<string> lines = {
+        "SET x AS string",
+        "SET y AS string",
+        "x = 'Hell'",
+        "y = 'o'",
+        "x = x + y + ' World'",
+        "DISPLAY x" };
+        testInterpreter(lines);
+    }
+
+    void stringExpression_valid_Braces() {
+        vector<string> lines = {
+        "SET smth AS string",
+        "SET msg AS string",
+        "smth = 'startin'",
+        "msg = 'somthin'",
+        "msg = msg + ( ' ' + smth )",
+        "DISPLAY msg" };
+        testInterpreter(lines);
+    }
+
+    void stringExpression_invalid_undeclaredVariable() {
+        vector<string> lines = {
+        "string x = 'diddy'",
+        "diddy = x + 'party'" };
+        testInterpreter(lines);
+    }
+
+    void stringExpression_invalid_typeError() {
+        vector<string> lines = {
+        "SET a AS string",
+        "SET b AS string",
+        "SET c AS int",
+        "a = 'score'",
+        "b = ' = '",
+        "c = 10",
+        "a = a + ( b + c )" };
+        testInterpreter(lines);
+    }
+
+    void stringExpression_invalid_invalidOperands() {
+        vector<string> lines = {
+                "SET diddy AS string",
+                "diddy = ' diddy '",
+                "SET aintNoParty AS string",
+                "aintNoParty = 'there aint no party'",
+                "SET res AS string",
+                "res = aintNoParty + ' like a ' / diddy * ' part' - 'y'" };
+        testInterpreter(lines);
+    }
+
+    void characterExpression_valid_Short() {
+        vector<string> lines = {
+        "SET A AS char",
+        "SET B AS char",
+        "SET C AS char",
+        "A = 'a'",
+        "B = '1'",
+        "C = A + B",
+        "DISPLAY C" };
+        testInterpreter(lines);
+    }
+
+    void characterExpression_valid_BODMAS() {
+        vector<string> lines = {
+        "SET A AS char",
+        "SET B AS char",
+        "SET C AS char",
+        "A = 'a'",
+        "B = '1'",
+        "C = '27'",
+        "C = C + ( (A+B) * 2 ) / 3",
+        "DISPLAY C" };
+        testInterpreter(lines);
+    }
+
+    void characterExpression_invalid_undeclaredVariable() {
+        vector<string> lines = {
+        "SET A AS char",
+        "SET B AS char",
+        "SET C AS char",
+        "A = 'a'",
+        "B = '1'",
+        "C = '27'",
+        "D = C - ( (A+B) * 2 ) / 3" };
+        testInterpreter(lines);
+    }
+
+    void characterExpression_invalid_typeError() {
+        vector<string> lines = {
+        "SET A AS char",
+        "SET B AS char",
+        "SET C AS string",
+        "A = 'a'",
+        "B = '1'",
+        "C = '27'",
+        "D = C + ( ( A + B ) * 2 ) / 3" };
+        testInterpreter(lines);
+    }
+
+    void booleanExpression_valid_Short() {
+        vector<string> lines = {
+        "SET b AS bool",
+        "b = TRUE",
+        "b = b - TRUE - TRUE",
+        "DISPLAY b" };
+        testInterpreter(lines);
+    }
+
+    void booleanExpression_valid_BODMAS() {
+        vector<string> lines = {
+        "SET b AS bool",
+        "SET found AS bool",
+        "SET c AS bool",
+        "b = TRUE",
+        "found = FALSE",
+        "c = ( b - found ) * b + c",
+        "DISPLAY c" };
+        testInterpreter(lines);
+    }
+
+    void booleanExpression_invalid_divisionByZero() {
+        vector<string> lines = {
+        "SET b AS bool",
+        "SET found AS bool",
+        "SET c AS bool",
+        "b = TRUE",
+        "found = FALSE",
+        "c = ( found - b ) * b / c" };
+        testInterpreter(lines);
+    }
+
+    void booleanExpression_invalid_undeclaredVariable() {
+        vector<string> lines = {
+        "SET b AS bool",
+        "SET found AS bool",
+        "SET C AS bool",
+        "b = TRUE",
+        "found = FALSE",
+        "C = ( b - found ) * b + c" };
+        testInterpreter(lines);
+    }
+
+    void boolenExpression_invalid_typeError() {
+        vector<string> lines = {
+        "SET b AS bool",
+        "b = TRUE",
+        "b = b - TRUE - TRUE",
+        "b = 1",
+        "DISPLAY b" };
+        testInterpreter(lines);
+    }
+
 };
 
 void (*Exception::invalidateCallback)() = nullptr;
@@ -3246,6 +3476,6 @@ void invalidateCode() {
 int main() {
     Exception::invalidateCallback = &invalidateCode;
     Test test;
-    test.forLoop_valid_Short();
+    test.mathematicalExpression_valid_Short();
     return 0;
 }
