@@ -218,12 +218,37 @@ public:
 
     Stack() {}
 
+    string getTypeName(DataType type) {
+        switch (type) {
+        case DataType::Int:
+            return "Int";
+            break;
+        case DataType::Float:
+            return "Float";
+            break;
+        case DataType::String:
+            return "String";
+            break;
+        case DataType::Char:
+            return "Char";
+            break;
+        case DataType::Boolean:
+            return "Boolean";
+            break;
+        default:
+            return "Undefined";
+            break;
+        }
+    }
+
     void addNewVariable(string name, DataType type) {
 
         if (nameToType.find(name) != nameToType.end()) { //variable already exists
             raiseRuntimeException("Variable " + name + " has already been declared");
         }
         else {
+            //Add variable to unordered_maps
+            //cout << "Variable " + name + " has type: " + getTypeName(type) << endl; // debugging output statement
             switch (type) {
             case DataType::String:
                 stringVariables[name] = "";
@@ -364,7 +389,7 @@ public:
     string getValueAsString(string name) {
         string res = "";
         auto it = nameToType.find(name);
-        bool variableExists = it == nameToType.end();
+        bool variableExists = it != nameToType.end();
         if (!variableExists) {
             raiseRuntimeException("The variable, " + name + ", has not been defined.");
             return res;
@@ -577,24 +602,24 @@ public:
                 if (i < n) i++; // Include closing quote
                 lexemes.push_back(line.substr(start, i - start));
             }
-            // Handle multi-char operators (e.g., >=, <=, <>, END IF)
+            // Handle multi-char operators
             else if (i + 1 < n && (line.substr(i, 2) == ">=" || line.substr(i, 2) == "<=" || line.substr(i, 2) == "<>")) {
                 lexemes.push_back(line.substr(i, 2));
                 i += 2;
             }
-            // Handle single-char tokens
+            // Handle numbers (including negative and decimal)
+            else if ((line[i] == '-' && i + 1 < n && isdigit(line[i + 1])) || isdigit(line[i])) {
+                size_t start = i;
+                if (line[i] == '-') i++; // skip minus
+                while (i < n && (isdigit(line[i]) || line[i] == '.')) i++;
+                lexemes.push_back(line.substr(start, i - start));
+            }
+            // Handle single-char tokens (operators, punctuation)
             else if (ispunct(line[i])) {
                 lexemes.push_back(string(1, line[i]));
                 i++;
             }
-            //Handle negative numbers
-            else if (line[i] == '-' && isdigit(line[i + 1]) && i + 1 < n) {
-                size_t start = i;
-                i++; //increment i to reflect minus sign
-                while (i < n && (isdigit(line[i]) || line[i] == '.')) i++; //support decimals
-                lexemes.push_back(line.substr(start, i - start));
-            }
-            // Handle words (identifiers, keywords)
+            // Handle identifiers (variables, keywords)
             else {
                 size_t start = i;
                 while (i < n && !isspace(line[i]) && !ispunct(line[i])) i++;
@@ -712,14 +737,13 @@ public:
         Numeric l = left->evaluate();
         Numeric r = right->evaluate();
         DataType resType = l.type;
-        Numeric defaultValue = Numeric(resType, 0, 0);
-        Numeric evaluation;
-        if (l.type != r.type) {
-            //raiseRuntimeException("The sum contains two values that do not have the same data type.");
-            return defaultValue;
-        }
         int intRes = 0;
         float floatRes = 0;
+        if (l.type != r.type) {
+            //raiseRuntimeException("The sum contains two values that do not have the same data type.");
+            return Numeric(resType, intRes, floatRes);
+        }
+
         switch (op) {
         case OpType::ADD:
             if (resType == DataType::Int) {
@@ -750,11 +774,11 @@ public:
                 intRes = l.intValue * r.intValue;
             }
             else {
-                floatRes = l.intValue * r.floatValue;
+                floatRes = l.floatValue * r.floatValue;
             }
             break;
         }
-        return evaluation;
+        return Numeric(resType, intRes, floatRes);
     }
 };
 Stack VariablesStack; // Global variable used for storing variable data
@@ -780,6 +804,7 @@ public:
     }
     void execute() override {
         VariablesStack.addNewVariable(this->name, this->type);
+        //cout << "New variable added, " + name; // debugging output statement
     }
 };
 
@@ -817,9 +842,11 @@ public:
 
 class VariableExpression : public Statement { //putting data into declared variables
 private:
+    TokenInstance lhsVar = { Token::Literal, "" };
     vector<TokenInstance> tokens;
     Expression* expr = nullptr;
     DataType expectedType = DataType::Int;
+    bool needToEvaluate = true;
 
     int getPrecedence(OpType op) {
         if (op == OpType::MULTIPLY || op == OpType::DIV) {
@@ -847,18 +874,21 @@ private:
     bool isOperand(TokenInstance token) {
         return token.type == Token::ADD || token.type == Token::SUB || token.type == Token::MULTIPLY || token.type == Token::DIV;
     }
+
     //Helper: get value of variable/lexeme
     int getIntValue(TokenInstance token) {
         //return stoi(token.lexeme); // For now, only handle integer literals
         Integer Int;
         if (token.type == Token::Literal) {
-            return Int.stringToInt(token.lexeme);
+            return  Int.stringToInt(token.lexeme);
         }
         //assume type = Token::Variable
         DataType type = VariablesStack.getType(token.lexeme);
         if (type == DataType::Int) {
+            cout << "The variable " + token.lexeme + " has a value of " << VariablesStack.getIntegerVariable(token.lexeme) << endl; // debugging output statement
             return VariablesStack.getIntegerVariable(token.lexeme);
         }
+
         raiseRuntimeException("Type mismatch for token, " + token.lexeme + ". An integer variable was expected.");
         return 0;
     }
@@ -870,9 +900,10 @@ private:
         }
         DataType type = VariablesStack.getType(token.lexeme);
         if (type == DataType::Float) {
+            cout << "The variable " + token.lexeme + " has a value of " << VariablesStack.getFloatVariable(token.lexeme) << endl; // debugging output statement
             return VariablesStack.getFloatVariable(token.lexeme);
         }
-        raiseRuntimeException("Type mismatch for token, " + token.lexeme + ". A floating point variable was expected.");
+        raiseRuntimeException("Type mismatch for token, " + token.lexeme + ". A floating point variable was expected." + " Instead recieved variable of type " + VariablesStack.getTypeName(type) + ". ");
         return 0;
     }
 
@@ -977,7 +1008,15 @@ private:
             output.push_back(opStack.top());
             opStack.pop();
         }
+        printPostfix(output); // debugging output statement
         return output;
+    }
+
+    void printPostfix(vector<TokenInstance> tokens) {
+        for (auto& token : tokens) {
+            cout << token.lexeme + " ";
+        }
+        cout << endl;
     }
 
     Expression* buildAST_NonNumeric(vector<TokenInstance> postfix) {
@@ -1009,6 +1048,7 @@ private:
         if (expr) {
             res = expr->evaluate(); //Execute expression if it is valid
         }
+        delete expr;
         return res;
     }
 
@@ -1111,28 +1151,59 @@ private:
         return res;
     }
 
+    void shorthandAssignment() {
+        //This is called when a variable is set to a single variable / value
+        TokenInstance rhs = tokens[0];
+        string value;
+        string expectedTypeName = VariablesStack.getTypeName(expectedType);
+        string varName = lhsVar.lexeme;
+        bool validExpr = true;
+        if (rhs.type == Token::Variable) {
+            value = VariablesStack.getValueAsString(rhs.lexeme);
+        }
+        else if (rhs.type == Token::Literal) {
+            value = rhs.lexeme;
+        }
+        else {
+            validExpr = false;
+            raiseRuntimeException("Invalid value for type " + expectedTypeName + ". Expected a " + expectedTypeName + " but got " + rhs.lexeme + " instead.");
+        }
+        if (validExpr) {
+            VariablesStack.updateVariableValue(varName, value);
+        }
+    }
+
 public:
-    VariableExpression(vector<TokenInstance> tokens) {
+    VariableExpression(vector<TokenInstance> tokens, TokenInstance lhsVar, bool needToEvaluate) {
         this->tokens = tokens;
+        this->lhsVar = lhsVar;
+        this->needToEvaluate = needToEvaluate;
+
         this->expr = nullptr;
         this->expectedType = DataType::Int;
     }
 
-    void execute() override {
-        if (tokens.size() >= 2) {
-            string lhsVarName = tokens[0].lexeme;
-            DataType lhsVarType = VariablesStack.getType(lhsVarName);
-            this->expectedType = lhsVarType;
 
-            //Declaring variables
-            Numeric numericRes;
-            vector<TokenInstance> adjustedTokens;
-            string stringRes;
-            char charRes = ' ';
-            string boolRes = "FALSE";
+    void execute() override {
+        //getting the variable expression type
+        string lhsVarName = lhsVar.lexeme;
+        DataType lhsVarType = VariablesStack.getType(lhsVarName);
+        this->expectedType = lhsVarType;
+
+        //Declaring variables
+        Numeric numericRes;
+        vector<TokenInstance> adjustedTokens;
+        string stringRes;
+        char charRes = ' ';
+        string boolRes = "FALSE";
+        cout << "For " + lhsVarName + " the need to evaluate is " << needToEvaluate << "." << endl;
+        if (!needToEvaluate) {
+            shorthandAssignment();
+        }
+        else {
 
             switch (lhsVarType) {
-            case DataType::Int:
+            case DataType::Int: //For integers and booleans, parse as a mathematical expression
                 numericRes = mathematicalExpression();
                 VariablesStack.updateVariableValue(lhsVarName, to_string(numericRes.intValue));
                 break;
@@ -1140,7 +1211,7 @@ public:
                 numericRes = mathematicalExpression();
                 VariablesStack.updateVariableValue(lhsVarName, to_string(numericRes.floatValue));
                 break;
-            case DataType::String:
+            case DataType::String: //For strings, prase as a string expression
                 adjustedTokens = removeADDTokens();
                 stringRes = stringExpression(adjustedTokens);
                 VariablesStack.updateVariableValue(lhsVarName, stringRes);
@@ -1154,7 +1225,6 @@ public:
                 boolRes = booleanExpression();
                 break;
             }
-
         }
     }
 
@@ -2433,36 +2503,75 @@ public:
         bool valueExpected = true;
         bool opExpected = false;
         Token type;
+        bool needToEvaluate = size > 3;
+        int braceDepth = 0;
+        //cout << "there are " << size << " tokens in the expression " << endl; // debugging output statement
         while (idx < size && validExpression) {
             type = tokens[idx].type;
-            if (valueExpected && (isVariableORValue(type) || isBrace(type))) {
-                exprTokens.push_back(tokens[idx]);
-                valueExpected = false;
-                if (idx < size - 1) {
+
+            if (valueExpected) {
+                if (isVariableORValue(type)) {
+                    exprTokens.push_back(tokens[idx]);
+                    valueExpected = false;
                     opExpected = true;
                 }
+                else if (type == Token::OpenBrace) {
+                    exprTokens.push_back(tokens[idx]);
+                    braceDepth++;
+                    // A new expression starts inside the bracket
+                }
+                else {
+                    validExpression = false;
+                    msg = "A variable, value, or opening brace '(' is expected.";
+                }
             }
-            else if (opExpected && isOperand(type)) {
-                exprTokens.push_back(tokens[idx]);
-                opExpected = false;
-                valueExpected = true;
+            else if (opExpected) {
+                if (isOperand(type)) {
+                    exprTokens.push_back(tokens[idx]);
+                    opExpected = false;
+                    valueExpected = true;
+                }
+                else if (type == Token::ClosedBrace) {
+                    if (braceDepth == 0) {
+                        validExpression = false;
+                        msg = "Unmatched closing parenthesis ')'.";
+                    }
+                    else {
+                        exprTokens.push_back(tokens[idx]);
+                        braceDepth--;
+                        // we still expect an operator or closing parenthesis next
+                    }
+                }
+                else {
+                    validExpression = false;
+                    msg = "An operator or closing brace ')' is expected.";
+                }
             }
             else {
                 validExpression = false;
             }
             idx++;
         }
-        if (valueExpected) {
-            msg = "A variable or value is expected.";
-        }
-        if (opExpected) {
-            msg = "Missing an arithmetic operator.";
+
+        if (braceDepth != 0) {
+            msg = "Unmatched parentheses in the above expression. Was expecting a ')'.";
+            validExpression = false;
         }
 
         if (validExpression) {
-            this->statement = new VariableExpression(exprTokens);
+            TokenInstance lhsVar = tokens[0];
+            this->statement = new VariableExpression(exprTokens, lhsVar, needToEvaluate);
         }
         else {
+            if (braceDepth == 0) {
+                if (valueExpected) {
+                    msg = "A variable or value is expected.";
+                }
+
+                else if (opExpected) {
+                    msg = "An arithmetic operator is expected.";
+                }
+            }
             raiseException(msg);
             this->statement = nullptr;
         }
@@ -2748,13 +2857,20 @@ public:
         // Parse all lines/statements, not just the first
         while (p.syntaxValid() && !tokens.empty() && interpreter.isValidCode()) {
             p.parseExpression();
-            if (!p.syntaxValid()) break;
-            tokens = interpreter.getNewTokens();
-            p.setNewTokens(tokens);
+            if (p.syntaxValid()) {
+                Statement* statement = p.getExecutableStatement();
+                if (statement) {
+                    statement->execute();
+                }
+                delete statement;
+                tokens = interpreter.getNewTokens();
+                p.setNewTokens(tokens);
+            }
+            else {
+                break;
+            }
         }
-        Statement* statement = p.getExecutableStatement();
-        statement->execute();
-        delete statement;
+
     }
 
     void ifStatement_valid_Short() { // passes (works)
@@ -3238,7 +3354,7 @@ public:
         testInterpreter(lines);
     }
 
-    void mathematicalExpression_valid_Short() {
+    void mathematicalExpression_valid_Short() { // passes (works as expected)
         vector<string> lines = {
         "SET x AS int",
         "SET y AS int",
@@ -3249,7 +3365,7 @@ public:
         testInterpreter(lines);
     }
 
-    void mathematicalExpression_valid_MultipleOperands() {
+    void mathematicalExpression_valid_MultipleOperands() { // passes (works as expected)
         vector<string> lines = {
         "SET a AS float",
         "SET b AS float",
@@ -3261,7 +3377,7 @@ public:
         testInterpreter(lines);
     }
 
-    void mathematicalExpression_valid_BODMAS() {
+    void mathematicalExpression_valid_BODMAS() { // passes (works as expected)
         vector<string> lines = {
         "SET a AS int",
         "SET b AS int",
@@ -3269,11 +3385,12 @@ public:
         "a = 15",
         "b = -2",
         "c = 7",
-        "a = (b - c) * a - a / (b + c)" };
+        "a = (b - c) * a - a / (b + c)",
+        "DISPLAY a" };
         testInterpreter(lines);
     }
 
-    void mathematicalExpression_invalid_undeclaredVariable() {
+    void mathematicalExpression_invalid_undeclaredVariable() { // passes (error detected)
         vector<string> lines = {
         "SET x AS int",
         "SET y AS int",
@@ -3283,7 +3400,7 @@ public:
         testInterpreter(lines);
     }
 
-    void mathematicalExpression_invalid_typeError() {
+    void mathematicalExpression_invalid_typeError() { // passes (error detected)
         vector<string> lines = {
         "SET a AS float",
         "SET b AS float",
@@ -3295,7 +3412,7 @@ public:
         testInterpreter(lines);
     }
 
-    void mathematicalExpression_invalid_invalidBrackets() {
+    void mathematicalExpression_invalid_invalidBrackets() { // passes (error detected)
         vector<string> lines = {
          "SET a AS int",
          "SET b AS int",
