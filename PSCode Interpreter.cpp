@@ -9,7 +9,7 @@
 #include <exception>
 #include <stack>
 #include<type_traits> //used for generics and type comparisons
-//#include <variant>
+#include <sstream> // used to add strings together
 using namespace std; //This makes outputting to the console require less lines
 using std::string; //Include these lines to add strings
 
@@ -329,6 +329,7 @@ public:
     }
 
     void updateVariableValue(string name, string newValue) {
+        cout << "The new value of " << name << " = " << newValue << endl; // debugging output statement
         auto it = nameToType.find(name);
 
         if (it == nameToType.end()) {
@@ -1080,25 +1081,21 @@ private:
         return res;
     }
 
-    bool isString(string str) {
-        StringLiteral String;
-        return String.validString(str);
-    }
-
     vector<TokenInstance> removeADDTokens() {
         vector<TokenInstance> newTokens;
-        if (tokens.size() > 2) {
-            size_t i = 2;
+        if (tokens.size() > 1) {
+            size_t i = 0;
             Token t;
             while (i < tokens.size()) {
                 t = tokens[i].type;
                 if (t != Token::ADD && t != Token::OpenBrace && t != Token::ClosedBrace) { // skip ADD tokens and braces
                     newTokens.push_back(tokens[i]);
                 }
+                i++;
             }
         }
         else {
-            newTokens.push_back(tokens[2]);
+            newTokens.push_back(tokens[0]);
         }
         return newTokens;
     }
@@ -1111,17 +1108,14 @@ private:
         TokenInstance t;
         DataType type = DataType::String;
         string currentString = "";
+        stringstream stream;
+        StringLiteral String;
 
         while (idx < adjustedTokens.size() && validExpr) {
+            currentString = "";
             t = adjustedTokens[idx];
             if (t.type == Token::Literal) {
-                validExpr = isString(t.lexeme);
-                if (!validExpr) {
-                    msg = "The literal, " + t.lexeme + ", is not a valid string and does not belong in a string expression.";
-                }
-                else {
-                    currentString = t.lexeme;
-                }
+                currentString = String.getStringValue(t.lexeme);
             }
 
             else if (t.type == Token::Variable) {
@@ -1132,6 +1126,7 @@ private:
                 }
                 else {
                     currentString = VariablesStack.getStringVariable(t.lexeme);
+                    cout << "The variable " + t.lexeme + " has a value of " << currentString << endl; // debugging output statement
                 }
             }
 
@@ -1140,7 +1135,7 @@ private:
                 msg = "The operator, " + t.lexeme + ", was not expected in a string expression.";
             }
 
-            else {
+            if (currentString != "") { // adding strings together
                 res = res + currentString;
             }
             idx++;
@@ -1158,11 +1153,12 @@ private:
         string expectedTypeName = VariablesStack.getTypeName(expectedType);
         string varName = lhsVar.lexeme;
         bool validExpr = true;
+        StringLiteral String;
         if (rhs.type == Token::Variable) {
             value = VariablesStack.getValueAsString(rhs.lexeme);
         }
         else if (rhs.type == Token::Literal) {
-            value = rhs.lexeme;
+            value = String.getStringValue(rhs.lexeme);
         }
         else {
             validExpr = false;
@@ -2856,6 +2852,7 @@ public:
 
         // Parse all lines/statements, not just the first
         while (p.syntaxValid() && !tokens.empty() && interpreter.isValidCode()) {
+            interpreter.printTokens(tokens);
             p.parseExpression();
             if (p.syntaxValid()) {
                 Statement* statement = p.getExecutableStatement();
@@ -3424,55 +3421,67 @@ public:
         testInterpreter(lines);
     }
 
-    void stringExpression_valid_Short() {
+    void stringExpression_valid_Short() { // passes (works as expected)
         vector<string> lines = {
         "SET x AS string",
         "SET y AS string",
-        "x = 'Hell'",
-        "y = 'o'",
-        "x = x + y + ' World'",
+        "x = \"Hell\"",
+        "y = \"o\"",
+        "x = x + y + \" World\"",
         "DISPLAY x" };
         testInterpreter(lines);
     }
 
-    void stringExpression_valid_Braces() {
+    void stringExpression_valid_Braces() { // passes (works as expected)
         vector<string> lines = {
         "SET smth AS string",
         "SET msg AS string",
-        "smth = 'startin'",
-        "msg = 'somthin'",
-        "msg = msg + ( ' ' + smth )",
+        "smth = \"startin\"",
+        "msg = \"somthin\"",
+        "msg = smth + ( \" \" + msg)",
         "DISPLAY msg" };
         testInterpreter(lines);
     }
 
-    void stringExpression_invalid_undeclaredVariable() {
+    void stringExpression_invalid_undeclaredVariable() { // passes (error detected)
         vector<string> lines = {
-        "string x = 'diddy'",
-        "diddy = x + 'party'" };
+        "SET x AS string",
+        "x = \"diddy\"",
+        "diddy = x + \"party\"" };
         testInterpreter(lines);
     }
 
-    void stringExpression_invalid_typeError() {
+    void stringExpression_invalid_typeError() { // passes (error detected)
         vector<string> lines = {
         "SET a AS string",
         "SET b AS string",
         "SET c AS int",
-        "a = 'score'",
-        "b = ' = '",
+        "a = \"score\"",
+        "b = \" = \"",
         "c = 10",
         "a = a + ( b + c )" };
         testInterpreter(lines);
     }
 
-    void stringExpression_invalid_invalidOperands() {
+    void stringExpression_invalid_invalidOperands() { // passes (error detected)
         vector<string> lines = {
                 "SET diddy AS string",
-                "diddy = ' diddy '",
+                "diddy = \" diddy \"",
                 "SET aintNoParty AS string",
-                "aintNoParty = 'there aint no party'",
+                "aintNoParty = \"there aint no party\"",
                 "SET res AS string",
-                "res = aintNoParty + ' like a ' / diddy * ' part' - 'y'" };
+                "res = aintNoParty + \" like a \" / diddy * \" part\" - \"y\"" };
+        testInterpreter(lines);
+    }
+
+    void stringExpression_invalid_invalidRandomToken() { // passes (error detected)
+        vector<string> lines = {
+                "SET diddy AS string",
+                "diddy = \" diddy \"",
+                "SET aintNoParty AS string",
+                "aintNoParty = \"there aint no party\"",
+                "SET res AS string",
+                "res = aintNoParty + \" like a \" + diddy + \" part\" +% \"y\"" };
         testInterpreter(lines);
     }
 
@@ -3593,6 +3602,6 @@ void invalidateCode() {
 int main() {
     Exception::invalidateCallback = &invalidateCode;
     Test test;
-    test.mathematicalExpression_valid_Short();
+    test.characterExpression_valid_Short();
     return 0;
 }
