@@ -91,7 +91,7 @@ public:
             return stoi(str);
         }
         else {
-            Exception ex = Exception(ExceptionType::Runtime, "Cannot convert the string, " + str + ", to an Integer");
+            Exception ex = Exception(ExceptionType::Runtime, "Cannot convert the token, " + str + ", to an Integer");
             return this->errVal;
         }
     }
@@ -120,7 +120,7 @@ public:
             return stof(str);
         }
         else {
-            Exception ex = Exception(ExceptionType::Runtime, "Cannot convert the string, " + str + ", to a Floating Point number");
+            Exception ex = Exception(ExceptionType::Runtime, "Cannot convert the token, " + str + ", to a Floating Point number");
             return this->errVal;
         }
     }
@@ -133,15 +133,19 @@ public:
     Character() {}
 
     bool validChar(string str) {
-        return str.length() == 1;
+        //cout << "reading character: " << str << " with a length of " << str.length() << endl; // debugging output statement
+        //Given a value is read from a file, determine whether or not it is a string. In C++, the single-quote is '/''
+        if (str.length() != 3) return false;
+        char singleQuote = '\'';
+        return str[0] == singleQuote && str[2] == singleQuote;
     }
     char stringToChar(string str) {
         bool isValid = validChar(str);
         if (isValid) {
-            return str[0];
+            return str[1];
         }
         else {
-            Exception ex = Exception(ExceptionType::Runtime, "Cannot convert the string, " + str + ", to a Character.");
+            Exception ex = Exception(ExceptionType::Runtime, "Cannot convert the token, " + str + ", to a Character.");
             return this->def;
         }
     }
@@ -311,12 +315,21 @@ public:
 
     char getCharVariable(string name) {
         //precondition: the variable is expected to be an integer
+        char value = ' ';
         auto it = nameToType.find(name);
         if (it == nameToType.end()) {
             raiseRuntimeException("The variable, " + name + ", doesn't exist.");
-            return ' ';
         }
-        return charVariables[name];
+        else {
+            DataType type = it->second;
+            if (type != DataType::Char) {
+                raiseRuntimeException("Expected a character variable/literal. Instead, the " + getTypeName(type) + " " + name + " was given.");
+            }
+            else {
+                value = charVariables[name]; // converting from ASCII to char
+            }
+        }
+        return value;
     }
 
     string getBooleanVariable(string name) {
@@ -365,12 +378,7 @@ public:
             }
             case DataType::Char: {
                 Character Char;
-                if (Char.validChar(newValue)) {
-                    charVariables[name] = Char.stringToChar(newValue);
-                }
-                else {
-                    raiseRuntimeException("The value, " + newValue + ", is not a valid character.");
-                }
+                charVariables[name] = Char.stringToChar(newValue);
                 break;
             }
             case DataType::Boolean: {
@@ -404,7 +412,7 @@ public:
             res = to_string(getFloatVariable(name));
             break;
         case DataType::Char:
-            res = to_string(getCharVariable(name));
+            res = string(1, getCharVariable(name));
             break;
         case DataType::String:
             res = getStringVariable(name);
@@ -590,17 +598,25 @@ public:
 
     vector<string> chopIntoLexemes(string line) {
         vector<string> lexemes;
-        size_t i = 0, n = line.length();
+        size_t i = 0;
+        size_t n = line.length();
         while (i < n) {
             // Skip spaces
             while (i < n && isspace(line[i])) i++;
-            if (i >= n) break;
+            //if (i >= n) break;
 
             // Handle quoted strings
             if (line[i] == '"') {
                 size_t start = i++;
                 while (i < n && line[i] != '"') i++;
                 if (i < n) i++; // Include closing quote
+                lexemes.push_back(line.substr(start, i - start));
+            }
+            // Handle quoted characters
+            else if (line[i] == '\'') {
+                size_t start = i++;
+                while (i < n && line[i] != '\'') i++;
+                i += 1;
                 lexemes.push_back(line.substr(start, i - start));
             }
             // Handle multi-char operators
@@ -663,16 +679,14 @@ public:
     vector<TokenInstance> tokenizeLine() {
         vector<TokenInstance> tokens;
         vector<string> lexemes;
-        string line = this->line;
         //cout << "Tokenizing" << endl;
         line = removeNewline(line); //remove newline characters
         //cout << "Without newline: " + line << endl;
         lexemes = chopIntoLexemes(line); //break line into substrings based on spaces
         //cout << "Chopped into lexemes...\n";
-        //printLexemes(lexemes);
         //cout << "Revised lexemes...\n";
         lexemes = revisedLexemes(lexemes);//edit those substrings for tokens like ELSEIF, ENDIF, ENDWHILE, ect
-        //printLexemes(lexemes);
+        //printLexemes(lexemes); // debugging output statement
 
         Token t = Token::Literal;
 
@@ -831,7 +845,7 @@ public:
         return res;
     }
 
-    void printValues() override {
+    void execute() override {
         for (const auto& token : outputValues) {
             //for (TokenInstance token: outputValues) {
                 //cout << "valid";
@@ -1022,7 +1036,6 @@ private:
 
     Expression* buildAST_NonNumeric(vector<TokenInstance> postfix) {
         stack<Expression*> exprStack;
-        Character Char;
         int val = 0;
         for (auto& token : postfix) {
             if (token.type == Token::Literal || token.type == Token::Variable) {
@@ -1030,7 +1043,7 @@ private:
                 exprStack.push(new Literal(val));
             }
             else if (token.type == Token::ADD || token.type == Token::SUB || token.type == Token::MULTIPLY || token.type == Token::DIV) {
-                if (exprStack.size() < 2) return nullptr; // Error
+                if (exprStack.size() < 2) return nullptr;
                 Expression* right = exprStack.top();
                 exprStack.pop();
                 Expression* left = exprStack.top();
@@ -1154,11 +1167,17 @@ private:
         string varName = lhsVar.lexeme;
         bool validExpr = true;
         StringLiteral String;
+        Character Char;
         if (rhs.type == Token::Variable) {
             value = VariablesStack.getValueAsString(rhs.lexeme);
         }
         else if (rhs.type == Token::Literal) {
-            value = String.getStringValue(rhs.lexeme);
+            if (expectedType == DataType::String) {
+                value = String.getStringValue(rhs.lexeme);
+            }
+            else {
+                value = rhs.lexeme;
+            }
         }
         else {
             validExpr = false;
@@ -1192,6 +1211,7 @@ public:
         string stringRes;
         char charRes = ' ';
         string boolRes = "FALSE";
+
         cout << "For " + lhsVarName + " the need to evaluate is " << needToEvaluate << "." << endl;
         if (!needToEvaluate) {
             shorthandAssignment();
@@ -1201,26 +1221,32 @@ public:
             switch (lhsVarType) {
             case DataType::Int: //For integers and booleans, parse as a mathematical expression
                 numericRes = mathematicalExpression();
-                VariablesStack.updateVariableValue(lhsVarName, to_string(numericRes.intValue));
+                stringRes = to_string(numericRes.intValue);
                 break;
             case DataType::Float:
                 numericRes = mathematicalExpression();
-                VariablesStack.updateVariableValue(lhsVarName, to_string(numericRes.floatValue));
+                stringRes = to_string(numericRes.floatValue);
                 break;
             case DataType::String: //For strings, prase as a string expression
                 adjustedTokens = removeADDTokens();
                 stringRes = stringExpression(adjustedTokens);
-                VariablesStack.updateVariableValue(lhsVarName, stringRes);
                 break;
-            case DataType::Char:
+            case DataType::Char: {
                 //For characters, the ascii values are added, subtracted, multiplied, and divided
                 charRes = characterExpression();
+                stringRes = charRes;// convert the given value back to 'character' by adding quotation marks
+                stringstream stream;
+                stream << "'" << charRes << "'";
+                stringRes = stream.str();
                 break;
+            }
             default: //boolean variables
                 //For booleans, mathematical operations are performed as usual. If the result is non-zero, it is coerced back to TRUE, and if the result is zero, it is coerced to FALSE.
                 boolRes = booleanExpression();
+                stringRes = boolRes;
                 break;
             }
+            VariablesStack.updateVariableValue(lhsVarName, stringRes);
         }
     }
 
@@ -2071,7 +2097,6 @@ public:
         }
         else {
             this->statement = output;
-            output->printValues();
         }
 
     }
@@ -3485,19 +3510,44 @@ public:
         testInterpreter(lines);
     }
 
-    void characterExpression_valid_Short() {
+    void characterExpression_valid_Short() { // passes (works as expected)
+        vector<string> lines = {
+        "SET a AS char",
+        "SET B AS char",
+        "SET C AS char",
+        "a = 'A'",
+        "B = '1'",
+        "C = a + B",
+        "DISPLAY C" };
+        testInterpreter(lines);
+    }
+
+    void characterExpression_valid_BODMAS() { // passes (works as expected)
         vector<string> lines = {
         "SET A AS char",
         "SET B AS char",
         "SET C AS char",
         "A = 'a'",
         "B = '1'",
-        "C = A + B",
+        "C = ' '",
+        "C = C + ( (A*B) / '~') - C",
         "DISPLAY C" };
         testInterpreter(lines);
     }
 
-    void characterExpression_valid_BODMAS() {
+    void characterExpression_invalid_undeclaredVariable() { // passes (error detected)
+        vector<string> lines = {
+        "SET A AS char",
+        "SET B AS char",
+        "SET C AS char",
+        "A = 'a'",
+        "B = '1'",
+        "C = ' '",
+        "B = C - ( (A+b) * A ) / 'C'" };
+        testInterpreter(lines);
+    }
+
+    void characterExpression_invalid_invalidCharacter() { // passes (error detected)
         vector<string> lines = {
         "SET A AS char",
         "SET B AS char",
@@ -3505,34 +3555,22 @@ public:
         "A = 'a'",
         "B = '1'",
         "C = '27'",
-        "C = C + ( (A+B) * 2 ) / 3",
-        "DISPLAY C" };
+        "B = C - ( (A+B) * 2 ) / 3" };
         testInterpreter(lines);
     }
 
-    void characterExpression_invalid_undeclaredVariable() {
-        vector<string> lines = {
-        "SET A AS char",
-        "SET B AS char",
-        "SET C AS char",
-        "A = 'a'",
-        "B = '1'",
-        "C = '27'",
-        "D = C - ( (A+B) * 2 ) / 3" };
-        testInterpreter(lines);
-    }
-
-    void characterExpression_invalid_typeError() {
+    void characterExpression_invalid_typeError() { // passes (error detected)
         vector<string> lines = {
         "SET A AS char",
         "SET B AS char",
         "SET C AS string",
         "A = 'a'",
         "B = '1'",
-        "C = '27'",
-        "D = C + ( ( A + B ) * 2 ) / 3" };
+        "C = \"27\"",
+        "B = C + ( ( A + B ) * '2' ) / '3'" };
         testInterpreter(lines);
     }
+
 
     void booleanExpression_valid_Short() {
         vector<string> lines = {
@@ -3582,8 +3620,7 @@ public:
         "SET b AS bool",
         "b = TRUE",
         "b = b - TRUE - TRUE",
-        "b = 1",
-        "DISPLAY b" };
+        "b = 1" };
         testInterpreter(lines);
     }
 
@@ -3602,6 +3639,6 @@ void invalidateCode() {
 int main() {
     Exception::invalidateCallback = &invalidateCode;
     Test test;
-    test.characterExpression_valid_Short();
+    test.booleanExpression_valid_Short();
     return 0;
 }
