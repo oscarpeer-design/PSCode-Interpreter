@@ -5,7 +5,7 @@
 #include <vector>
 #include <unordered_map>
 #include <cctype>
-#include <climits>
+#include <limits> // for INT_MAX, INT_MIN, FLT_MAX
 #include <exception>
 #include <stack>
 #include<type_traits> //used for generics and type comparisons
@@ -442,7 +442,7 @@ class Lexer {
 private:
     string line;
     bool validToken = true;
-    unordered_map<string, Token> tokenMap = {
+    unordered_map<string, Token> tokenMap = { //The tokenMap handles terminal values
         {"BEGIN", Token::BEGIN},
         {"END", Token::END},
         {"IF", Token::IF},
@@ -479,7 +479,10 @@ private:
         {"(", Token::OpenBrace},
         {")", Token::ClosedBrace},
         {"AND", Token::AND},
-        {"OR", Token::OR}
+        {"OR", Token::OR},
+        //TRUE and FALSE terminal values
+        {"TRUE", Token::Literal},
+        {"FALSE", Token::Literal}
     };
 public:
     Lexer() {}
@@ -517,7 +520,7 @@ public:
     bool isValidVariable(string element) {
         bool valid = true;
         size_t len = element.length();
-        if (len > 0) {
+        if (len > 0 && valid) {
             valid = isLetter(element[0]);
             int i = 1;
 
@@ -549,11 +552,6 @@ public:
         }
         StringLiteral String;
         isLiteral = String.validString(element);
-        if (isLiteral) {
-            return true;
-        }
-        BooleanValue Boolean;
-        isLiteral = Boolean.validBoolean(element);
         if (isLiteral) {
             return true;
         }
@@ -748,6 +746,121 @@ class BinaryOperation : public Expression {
 public:
     BinaryOperation(OpType op, Expression* left, Expression* right) : op(op), left(left), right(right) {}
     //Initialising virtual constructor
+
+    void checkOverflow(OpType op, Numeric l, Numeric r) {
+        //Check overly large and small numbers
+        if (l.type == DataType::Int) {
+            switch (op) {
+            case OpType::ADD:
+                if ((r.intValue > 0 && l.intValue > numeric_limits<int>::max() - r.intValue) || (r.intValue < 0 && l.intValue < numeric_limits<int>::min() - r.intValue)) {
+                    const_cast<BinaryOperation*>(this)->raiseRuntimeException("Integer overflow on addition.");
+                }
+                break;
+            case OpType::SUB:
+                if ((r.intValue < 0 && l.intValue > numeric_limits<int>::max() + r.intValue) || (r.intValue > 0 && l.intValue < numeric_limits<int>::min() + r.intValue)) {
+                    const_cast<BinaryOperation*>(this)->raiseRuntimeException("Integer overflow on subtraction.");
+                }
+                break;
+            case OpType::MULTIPLY: { // check all 4 case in which overflow can happen with multiplication
+                bool invalid = false;
+                if (l.intValue > 0) {
+                    if (r.intValue > 0) {
+                        if (l.intValue > numeric_limits<int>::max() / r.intValue) {
+                            invalid = true;
+                        }
+                    }
+                    else {
+                        if (r.intValue < numeric_limits<int>::min() / l.intValue) {
+                            invalid = true;
+                        }
+                    }
+                }
+                else if (l.intValue < 0) {
+                    if (r.intValue > 0) {
+                        if (l.intValue < numeric_limits<int>::min() / r.intValue) {
+                            invalid = true;
+                        }
+                    }
+                    else {
+                        if (l.intValue != 0 && r.intValue < numeric_limits<int>::max() / l.intValue) invalid = true;
+                    }
+                }
+                if (invalid) {
+                    const_cast<BinaryOperation*>(this)->raiseRuntimeException("Integer overflow on multiplication.");
+                }
+                break;
+            }
+            default: //OpType::DIV
+                if (r.intValue == 0) {
+                    const_cast<BinaryOperation*>(this)->raiseRuntimeException("Integer division by zero error.");
+                }
+                //Integer division overflow happens in only one case, when INT_MIN / -1, because of the 32-bit integer system
+                else if (l.intValue == numeric_limits<int>::min() && r.intValue == -1) {
+                    const_cast<BinaryOperation*>(this)->raiseRuntimeException("Integer overflow on division (INT_MIN / -1).");
+                }
+                break;
+            }
+        }
+        else { // DataType::Float
+            switch (op) {
+            case OpType::ADD:
+                if ((r.floatValue > 0 && l.floatValue > numeric_limits<float>::max() - r.floatValue) || (r.floatValue < 0 && l.floatValue < numeric_limits<float>::min() - r.floatValue)) {
+                    const_cast<BinaryOperation*>(this)->raiseRuntimeException("Floating point overflow on addition.");
+                }
+                break;
+            case OpType::SUB:
+                if ((r.floatValue  < 0 && l.floatValue  > numeric_limits<float>::max() + r.floatValue) || (r.floatValue > 0 && l.floatValue < numeric_limits<float>::min() + r.floatValue)) {
+                    const_cast<BinaryOperation*>(this)->raiseRuntimeException("Floating point overflow on subtraction.");
+                }
+                break;
+            case OpType::MULTIPLY: { // check all 4 case in which overflow can happen with multiplication
+                bool invalid = false;
+                if (l.floatValue > 0) {
+                    if (r.floatValue > 0) {
+                        if (l.floatValue > numeric_limits<float>::max() / r.floatValue) {
+                            invalid = true;
+                        }
+                    }
+                    else {
+                        if (r.floatValue < -numeric_limits<float>::max() / l.floatValue) {
+                            invalid = true;
+                        }
+                    }
+                }
+                else if (l.floatValue < 0) {
+                    if (r.floatValue > 0) {
+                        if (l.floatValue < -numeric_limits<float>::max() / r.floatValue) {
+                            invalid = true;
+                        }
+                    }
+                    else {
+                        if (l.floatValue != 0 && r.floatValue < numeric_limits<float>::max() / l.floatValue) {
+                            invalid = true;
+                        }
+                    }
+                }
+                if (invalid) {
+                    const_cast<BinaryOperation*>(this)->raiseRuntimeException("Floating point overflow on multiplication.");
+                }
+                break;
+            }
+            default: // OpType::DIV
+
+                if (r.floatValue == 0.0f) {
+                    const_cast<BinaryOperation*>(this)->raiseRuntimeException("Floating point division by zero error.");
+                }
+                // Check for overflow using limits
+                else {
+                    float result = l.floatValue / r.floatValue;
+                    if (result > numeric_limits<float>::max() || result < -numeric_limits<float>::max()) {
+                        const_cast<BinaryOperation*>(this)->raiseRuntimeException("Floating point overflow on division.");
+                    }
+                }
+                break;
+            }
+        }
+    }
+
     Numeric evaluate() const override { //override keyword shows overriding class method by child class
         Numeric l = left->evaluate();
         Numeric r = right->evaluate();
@@ -755,10 +868,11 @@ public:
         int intRes = 0;
         float floatRes = 0;
         if (l.type != r.type) {
-            //raiseRuntimeException("The sum contains two values that do not have the same data type.");
+            //Use const_cast to call the non-const raiseRuntimeException method
+            const_cast<BinaryOperation*>(this)->raiseRuntimeException("Type mismatch in binary operation.");
             return Numeric(resType, intRes, floatRes);
         }
-
+        const_cast<BinaryOperation*>(this)->checkOverflow(op, l, r);
         switch (op) {
         case OpType::ADD:
             if (resType == DataType::Int) {
@@ -777,12 +891,14 @@ public:
             }
             break;
         case OpType::DIV:
-            if (l.type == DataType::Int && r.intValue != 0) {
+            if (l.type == DataType::Int) {
                 intRes = l.intValue / r.intValue;
             }
-            else if (r.floatValue != 0) {
+            //DataType::Float
+            else {
                 floatRes = l.floatValue / r.floatValue;
             }
+
             break;
         case OpType::MULTIPLY:
             if (l.type == DataType::Int) {
@@ -957,6 +1073,7 @@ private:
 
     Expression* buildASTFromPostfix(vector<TokenInstance> postfix) {
         stack<Expression*> exprStack;
+        OpType type = OpType::Other;
         for (auto& token : postfix) {
             if (token.type == Token::Literal || token.type == Token::Variable) {
                 if (expectedType == DataType::Int) {
@@ -969,12 +1086,13 @@ private:
                 }
             }
             else if (token.type == Token::ADD || token.type == Token::SUB || token.type == Token::MULTIPLY || token.type == Token::DIV) {
-                if (exprStack.size() < 2) return nullptr; // Error
+                if (exprStack.size() < 2) return nullptr; // ADD DIVISION BY ZERO AND OVERLY LARGE NUMBER ERROR CHECKING
                 Expression* right = exprStack.top();
                 exprStack.pop();
                 Expression* left = exprStack.top();
                 exprStack.pop();
-                exprStack.push(new BinaryOperation(getOpType(token), left, right));
+                type = getOpType(token);
+                exprStack.push(new BinaryOperation(type, left, right));
             }
         }
         if (exprStack.size() == 1) return exprStack.top();
@@ -1043,7 +1161,7 @@ private:
                 exprStack.push(new Literal(val));
             }
             else if (token.type == Token::ADD || token.type == Token::SUB || token.type == Token::MULTIPLY || token.type == Token::DIV) {
-                if (exprStack.size() < 2) return nullptr;
+                if (exprStack.size() < 2) return nullptr; // ADD DIVISION BY ZERO AND OVERLY LARGE NUMBER ERROR CHECKING
                 Expression* right = exprStack.top();
                 exprStack.pop();
                 Expression* left = exprStack.top();
@@ -3572,7 +3690,7 @@ public:
     }
 
 
-    void booleanExpression_valid_Short() {
+    void booleanExpression_valid_Short() { // passes (works as expected)
         vector<string> lines = {
         "SET b AS bool",
         "b = TRUE",
@@ -3581,7 +3699,7 @@ public:
         testInterpreter(lines);
     }
 
-    void booleanExpression_valid_BODMAS() {
+    void booleanExpression_valid_BODMAS() { // passes (works as expected)
         vector<string> lines = {
         "SET b AS bool",
         "SET found AS bool",
@@ -3593,7 +3711,7 @@ public:
         testInterpreter(lines);
     }
 
-    void booleanExpression_invalid_divisionByZero() {
+    void booleanExpression_invalid_divisionByZero() { // passes (error detected)
         vector<string> lines = {
         "SET b AS bool",
         "SET found AS bool",
@@ -3604,7 +3722,7 @@ public:
         testInterpreter(lines);
     }
 
-    void booleanExpression_invalid_undeclaredVariable() {
+    void booleanExpression_invalid_undeclaredVariable() { // passes (error detected)
         vector<string> lines = {
         "SET b AS bool",
         "SET found AS bool",
@@ -3615,7 +3733,7 @@ public:
         testInterpreter(lines);
     }
 
-    void boolenExpression_invalid_typeError() {
+    void boolenExpression_invalid_typeError() { // passes (error detected)
         vector<string> lines = {
         "SET b AS bool",
         "b = TRUE",
