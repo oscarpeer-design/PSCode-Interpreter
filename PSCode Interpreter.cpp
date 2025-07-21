@@ -1,4 +1,5 @@
 #include <iostream> // enables output of strings to screen
+#include <fstream> // enables writing to files
 #include <stdio.h>
 #include <iomanip> //manipulates floating point data to enable printing
 #include <string>
@@ -1729,31 +1730,63 @@ public:
 class Interpreter; // Forward declaration
 extern Interpreter interpreter; // Declare the global variable
 
-class FileHandler {
-protected:
+class SourceReader {
+private:
     string inputFilename;
     string outputFilename;
+    int lineNumber = 0;
+    ifstream fileReader;
+    string currentLine;
 
 public:
+    SourceReader(std::string inputFilename, std::string outputFilename) //initialising with initialiser list
+        : inputFilename(std::move(inputFilename)),
+        outputFilename(std::move(outputFilename)),
+        currentLine(""),
+        lineNumber(0)
+    {
+        fileReader.open(this->inputFilename);
+        if (!fileReader.is_open()) {
+            throw std::runtime_error("Could not open the source file, " + this->inputFilename + ".");
+        }
+    }
 
-    FileHandler() {}
-
-    FileHandler(string inputFilename, string outputFilename) {
-        this->inputFilename = inputFilename;
-        this->outputFilename = outputFilename;
+    ~SourceReader() {
+        fileReader.close();
     }
 
     void writeOutput(string outputLine) {
-
+        ofstream fileWriter;
+        try {
+            fileWriter.open(outputFilename);
+            fileWriter.exceptions(std::ofstream::failbit | std::ofstream::badbit); // this enables exceptions on bad file reading
+            fileWriter << outputLine << endl;
+            fileWriter.close();
+        }
+        catch (const std::ofstream::failure&) {
+            cout << "An error occurred when writing to the file" << endl;
+        }
     }
 
-    string readLine() {
-        string line = "";
-        return line;
+    bool nextLine() {
+        //updates the current line and line number
+        if (getline(fileReader, currentLine)) {
+            lineNumber++;
+            return true;
+        }
+        return false;
+    }
+
+    string getLine() {
+        return currentLine;
+    }
+
+    int getLineNumber() {
+        return lineNumber;
     }
 };
 
-class Interpreter : public FileHandler {
+class Interpreter {
 
 private:
     bool validCode = true;
@@ -1761,11 +1794,6 @@ private:
     int currentLineNum = 0;
 public:
     Interpreter() {}
-
-    Interpreter(string inputFilename, string outputFilename) {
-        this->inputFilename = inputFilename;
-        this->outputFilename = outputFilename;
-    }
 
     int getLineNum() {
         return this->currentLineNum;
