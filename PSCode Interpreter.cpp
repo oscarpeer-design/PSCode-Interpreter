@@ -3835,7 +3835,6 @@ void runInterpreter() {
     sourceReader->alterFileNames(inputFileName, outputFileName);
 
     Parser parser;
-    Lexer lexer;
     vector<TokenInstance> tokens;
 
     interpreter.resetLineNum();
