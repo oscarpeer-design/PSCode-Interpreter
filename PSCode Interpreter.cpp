@@ -1732,19 +1732,19 @@ extern Interpreter interpreter; // Declare the global variable
 
 class SourceReader {
 private:
-    string inputFilename;
-    string outputFilename;
+    string inputFilename = "";
+    string outputFilename = "";
     int lineNumber = 0;
     ifstream fileReader;
     string currentLine;
 
 public:
-    SourceReader(std::string inputFilename, std::string outputFilename) //initialising with initialiser list
-        : inputFilename(std::move(inputFilename)),
-        outputFilename(std::move(outputFilename)),
-        currentLine(""),
-        lineNumber(0)
-    {
+    SourceReader() {
+
+    }
+    void alterFileNames(string inputFileName, string outputFileName) {
+        this->inputFilename = inputFileName;
+        this->outputFilename = outputFileName;
         fileReader.open(this->inputFilename);
         if (!fileReader.is_open()) {
             throw std::runtime_error("Could not open the source file, " + this->inputFilename + ".");
@@ -1786,12 +1786,16 @@ public:
     }
 };
 
+SourceReader* sourceReader;//Forward declaration
+
 class Interpreter {
 
 private:
     bool validCode = true;
-    vector<string>lines;
+    vector<string>lines; // only used in testing
     int currentLineNum = 0;
+    string currentLine;
+
 public:
     Interpreter() {}
 
@@ -1801,6 +1805,10 @@ public:
 
     void setLines(vector<string> lines) {
         this->lines = lines;
+    }
+
+    void setCurrentLine(string currentLine) {
+        this->currentLine = currentLine;
     }
 
     void resetLineNum() {
@@ -1815,7 +1823,7 @@ public:
         return this->validCode;
     }
 
-    vector<TokenInstance> getNewTokens() {
+    vector<TokenInstance> getNewTokens() { // ONLY USED IN TESTING
         vector<TokenInstance> tokens;
         Lexer lexer;
         if (this->currentLineNum < this->lines.size()) {
@@ -1824,6 +1832,18 @@ public:
             tokens = lexer.tokenizeLine();
             //printTokens(tokens); // debugging output statement
             currentLineNum++;
+        }
+        return tokens;
+    }
+
+    vector<TokenInstance> advanceTokens() { //USED IN THE REAL SOLUTION
+        vector<TokenInstance> tokens;
+        Lexer lexer;
+        lexer.setLine(currentLine);
+        if (sourceReader->nextLine()) {
+            string line = sourceReader->getLine();
+            lexer.setLine(line);
+            tokens = lexer.tokenizeLine();
         }
         return tokens;
     }
@@ -1977,10 +1997,14 @@ public:
         this->tokens = generatedTokens;
     }
 
-    void generateNewTokens() {
+    void generateNewTokens() { // ONLY USED IN TESTING
         //cout << "generating new tokens : line " << interpreter.getLineNum() << endl;
         this->tokens = interpreter.getNewTokens();
         //interpreter.printTokens(this->tokens);
+    }
+
+    void advanceTokens() {
+        this->tokens = interpreter.advanceTokens();
     }
 
     void resetLineSkips() {
@@ -2384,13 +2408,15 @@ public:
         Token t = Token::Literal;
 
         // Advance to first line of the loop body
-        generateNewTokens();
+        //generateNewTokens();
+        advanceTokens();
         checkFinalLine();
 
         resetLineSkips();
         while (!done && !isFinalLine && validSyntax && !maxSkipsReached()) {
             if (tokens.empty()) {
-                generateNewTokens();
+                //generateNewTokens();
+                advanceTokens();
                 checkFinalLine();
                 recordLineSkip();
                 //check for final line if an empty line has been found to prevent an infinite loop from occurring
@@ -2408,7 +2434,8 @@ public:
                 IFStatement* nestedIfStatement = new IFStatement(nestedIfNode);
                 statements.push_back(nestedIfStatement);
                 statement = nullptr;
-                generateNewTokens();
+                //generateNewTokens();
+                advanceTokens();
             }
             else if (t == Token::WHILE) {
                 Branch* nestedWhile = parseWhileLoop();
@@ -2418,7 +2445,8 @@ public:
                 WhileLoop* whileLoopStatement = new WhileLoop(nestedWhile);
                 statements.push_back(whileLoopStatement);
                 statement = nullptr;
-                generateNewTokens();
+                //generateNewTokens();
+                advanceTokens();
             }
             else if (t == Token::ENDWHILE) {
                 done = true;
@@ -2428,7 +2456,8 @@ public:
                 parseExpression();
                 if (statement) statements.push_back(statement);
                 statement = nullptr;
-                generateNewTokens();
+                //generateNewTokens();
+                advanceTokens();
             }
             cout << "Printing next line: ";
             interpreter.printLexemes(tokens);
@@ -2477,7 +2506,8 @@ public:
         resetLineSkips();
         while (!done && !isFinalLine && validSyntax && !maxSkipsReached()) {
             if (tokens.empty()) {
-                generateNewTokens();
+                //generateNewTokens();
+                advanceTokens();
                 recordLineSkip();
                 if (tokens.empty()) continue;
             }
@@ -2488,7 +2518,8 @@ public:
                 IFStatement* nestedIfStatement = new IFStatement(nestedIfNode);
                 statements.push_back(nestedIfStatement);
                 statement = nullptr;
-                generateNewTokens();
+                //generateNewTokens();
+                advanceTokens();
             }
             else if (t == Token::ELSEIF || t == Token::ELSE || t == Token::ENDIF) {
                 done = true;
@@ -2497,7 +2528,8 @@ public:
                 parseExpression();
                 if (statement) statements.push_back(statement);
                 statement = nullptr;
-                generateNewTokens();
+                //generateNewTokens();
+                advanceTokens();
             }
             checkFinalLine();
         }
@@ -2510,7 +2542,8 @@ public:
         //cout << "parseIfStatement: lookahead token is " << interpreter.getTokenString(tokens[0].type) << " (" << tokens[0].lexeme << ")" << endl; //debugging output statement
         bool isElse = tokens[0].type == Token::ELSE;
         vector<TokenInstance> headerTokens = tokens;
-        generateNewTokens(); // <-- Advance to the first line of the branch body!
+        //generateNewTokens(); // <-- Advance to the first line of the branch body!
+        advanceTokens();
         BranchNode* node = new BranchNode();
         node->isElseBranch = isElse;
         node->current = parseIFBranch(isElse, headerTokens, node);
@@ -2520,7 +2553,8 @@ public:
         bool done = false;
         while (!isFinalLine && !done && validSyntax) {
             if (tokens.empty()) {
-                generateNewTokens();
+                //generateNewTokens();
+                advanceTokens();
                 if (tokens.empty()) continue;
             }
             //cout << "parseIfStatement: lookahead token is " << interpreter.getTokenString(tokens[0].type) << " (" << tokens[0].lexeme << ")" << endl; //debugging output statement
@@ -2539,7 +2573,8 @@ public:
             }
             // Only advance tokens if you expect to process the next branch
             if (!done) {
-                generateNewTokens();
+                //generateNewTokens();
+                advanceTokens();
             }
             checkFinalLine();
         }
@@ -2598,14 +2633,16 @@ public:
             startValue = startEndTokens[0];
             endValue = startEndTokens[1];
         }
-        generateNewTokens();
+        //generateNewTokens();
+        advanceTokens();
         resetLineSkips();
         bool done = false;
         Token t = Token::Literal;
 
         while (!isFinalLine && !done && validSyntax && !maxSkipsReached()) {
             if (tokens.empty()) {
-                generateNewTokens();
+                //generateNewTokens();
+                advanceTokens();
                 if (tokens.empty()) continue;
             }
             t = tokens[0].type;
@@ -2614,7 +2651,8 @@ public:
                 ForLoop* forLoop = parseForLoop();
                 statements.push_back(forLoop);
                 this->statement = nullptr;
-                generateNewTokens();
+                //generateNewTokens();
+                advanceTokens();
             }
             else if (t == Token::NEXT) {
                 done = true;
@@ -2624,7 +2662,8 @@ public:
                 parseExpression();
                 statements.push_back(this->statement);
                 this->statement = nullptr;
-                generateNewTokens();
+                //generateNewTokens();
+                advanceTokens();
             }
         }
         //cout << "After FOR loop body, done = " << done << endl; //debugging output statement
@@ -3780,6 +3819,50 @@ void invalidateCode() {
     interpreter.invalidateCode();
     exit(EXIT_FAILURE); //stops code from running any further when an exception is encountered
     //This method is only to be called when an Exception occurs
+}
+
+string getFileName(string msg) {
+    string fileName = "";
+    cout << msg;
+    cin >> fileName;
+    return fileName;
+}
+
+void runInterpreter() {
+    //Runs the code for the entire solution
+    string inputFileName = getFileName("Enter the name of the source code txt file. ");
+    string outputFileName = getFileName("Enter the name of the txt file to which you would like to display any outputs. ");
+    sourceReader->alterFileNames(inputFileName, outputFileName);
+
+    Parser parser;
+    Lexer lexer;
+    vector<TokenInstance> tokens;
+
+    interpreter.resetLineNum();
+    tokens = interpreter.advanceTokens();
+    //cout << "testInterpreter: first tokens = "; //debugging output statement
+    //interpreter.printLexemes(tokens); //debugging output statement
+    parser.setNewTokens(tokens);
+
+    // Parse all lines/statements, not just the first
+    while (parser.syntaxValid() && !tokens.empty() && interpreter.isValidCode()) {
+        interpreter.printTokens(tokens);
+        parser.parseExpression();
+        if (parser.syntaxValid()) {
+            Statement* statement = parser.getExecutableStatement();
+            if (statement) {
+                statement->execute();
+            }
+            delete statement;
+            tokens = interpreter.getNewTokens();
+            parser.setNewTokens(tokens);
+        }
+        else {
+            break;
+        }
+    }
+
+    delete(sourceReader);
 }
 
 int main() {
