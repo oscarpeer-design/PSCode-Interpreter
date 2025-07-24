@@ -1745,10 +1745,31 @@ public:
     void alterFileNames(string inputFileName, string outputFileName) {
         this->inputFilename = inputFileName;
         this->outputFilename = outputFileName;
-        fileReader.open(this->inputFilename);
-        if (!fileReader.is_open()) {
-            throw std::runtime_error("Could not open the source file, " + this->inputFilename + ".");
+
+        if (fileReader.is_open()) {
+            fileReader.close();
         }
+
+        fileReader.clear(); // reset flags
+        fileReader.open(this->inputFilename);
+
+        if (!fileReader.is_open()) {
+            cerr << "ERROR: Could not open file: " << this->inputFilename << endl;
+
+            // Check file existence (optional)
+            ifstream test(this->inputFilename);
+            if (!test.good()) {
+                cerr << "File does not exist or is not accessible." << endl;
+            }
+            else {
+                cerr << "File exists but failed to open — check permissions." << endl;
+            }
+        }
+        else {
+            cout << "File opened successfully: " << this->inputFilename << endl; // output statement
+        }
+
+        lineNumber = 0; // reset line count
     }
 
     ~SourceReader() {
@@ -1770,10 +1791,12 @@ public:
 
     bool nextLine() {
         //updates the current line and line number
+        cout << "[nextLine] is_open: " << fileReader.is_open() << ", good: " << fileReader.good() << endl;// debugging output statement
         if (getline(fileReader, currentLine)) {
             lineNumber++;
             return true;
         }
+        cout << "[nextLine] getline failed!" << endl; // debugging output statement
         return false;
     }
 
@@ -1786,7 +1809,7 @@ public:
     }
 };
 
-SourceReader* sourceReader;//Forward declaration
+SourceReader sourceReader;//Forward declaration
 
 class Interpreter {
 
@@ -1839,10 +1862,9 @@ public:
     vector<TokenInstance> advanceTokens() { //USED IN THE REAL SOLUTION
         vector<TokenInstance> tokens;
         Lexer lexer;
-        lexer.setLine(currentLine);
-        if (sourceReader->nextLine()) {
-            string line = sourceReader->getLine();
-            lexer.setLine(line);
+        if (sourceReader.nextLine()) {
+            currentLine = sourceReader.getLine();
+            lexer.setLine(currentLine);
             tokens = lexer.tokenizeLine();
         }
         return tokens;
@@ -3831,8 +3853,8 @@ string getFileName(string msg) {
 void runInterpreter() {
     //Runs the code for the entire solution
     string inputFileName = getFileName("Enter the name of the source code txt file. ");
-    string outputFileName = getFileName("Enter the name of the txt file to which you would like to display any outputs. ");
-    sourceReader->alterFileNames(inputFileName, outputFileName);
+    string outputFileName = "MyOutput.txt";//getFileName("Enter the name of the txt file to which you would like to display any outputs. ");
+    sourceReader.alterFileNames(inputFileName, outputFileName);
 
     Parser parser;
     vector<TokenInstance> tokens;
@@ -3860,13 +3882,10 @@ void runInterpreter() {
             break;
         }
     }
-
-    delete(sourceReader);
 }
 
 int main() {
     Exception::invalidateCallback = &invalidateCode;
-    Test test;
-    test.booleanExpression_valid_Short();
+    runInterpreter();
     return 0;
 }
