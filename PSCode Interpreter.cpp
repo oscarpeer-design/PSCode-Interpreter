@@ -11,16 +11,17 @@
 #include <stack>
 #include<type_traits> //used for generics and type comparisons
 #include <sstream> // used to add strings together
+#include <cmath> // used for floating point modulo
 using namespace std; //This makes outputting to the console require less lines
 using std::string; //Include these lines to add strings
 
-enum class OpType { ADD, SUB, DIV, MULTIPLY, Other }; //Create an enum called OpType that handles different operations
+enum class OpType { ADD, SUB, DIV, MULTIPLY, MODULO, Other }; //Create an enum called OpType that handles different operations
 enum class EqualityOperator { LT, GT, EQ, NEQ, LTET, GTET };
 enum class DataType { Int, Float, Char, String, Boolean, UnAssigned };
 enum class ExceptionType { Lexical, Syntactical, Runtime };
 
 enum class StatementType { BEGIN, END, Output, AssignmentStatement, VariableExpression, IFStatement, ForLoop, WhileLoop, Undefined };
-enum class Token { BEGIN, END, IF, WHILE, FOR, ENDIF, THEN, TO, ELSE, ELSEIF, ENDWHILE, NEXT, DISPLAY, SET, AS, ADD, SUB, DIV, MULTIPLY, Int, Float, Char, String, Boolean, OpenBrace, ClosedBrace, Variable, Literal, EqualityOp, AND, OR };
+enum class Token { BEGIN, END, IF, WHILE, FOR, ENDIF, THEN, TO, ELSE, ELSEIF, ENDWHILE, NEXT, DISPLAY, SET, AS, ADD, SUB, DIV, MULTIPLY, MODULO, Int, Float, Char, String, Boolean, OpenBrace, ClosedBrace, Variable, Literal, EqualityOp, AND, OR };
 
 struct TokenInstance {
     Token type = Token::Literal;
@@ -343,7 +344,7 @@ public:
     }
 
     void updateVariableValue(string name, string newValue) {
-        cout << "The new value of " << name << " = " << newValue << endl; // debugging output statement
+        //cout << "The new value of " << name << " = " << newValue << endl; // debugging output statement
         auto it = nameToType.find(name);
 
         if (it == nameToType.end()) {
@@ -464,6 +465,7 @@ private:
         {"-", Token::SUB},
         {"/", Token::DIV},
         {"*", Token::MULTIPLY},
+        {"%", Token::MODULO},
         //equality operands
         {"=", Token::EqualityOp},
         {">", Token::EqualityOp},
@@ -791,13 +793,22 @@ public:
                 }
                 break;
             }
-            default: //OpType::DIV
+            case OpType::DIV:
                 if (r.intValue == 0) {
                     const_cast<BinaryOperation*>(this)->raiseRuntimeException("Integer division by zero error.");
                 }
                 //Integer division overflow happens in only one case, when INT_MIN / -1, because of the 32-bit integer system
                 else if (l.intValue == numeric_limits<int>::min() && r.intValue == -1) {
                     const_cast<BinaryOperation*>(this)->raiseRuntimeException("Integer overflow on division (INT_MIN / -1).");
+                }
+                break;
+            default: //OpType::MODULO
+                if (r.intValue == 0) {
+                    const_cast<BinaryOperation*>(this)->raiseRuntimeException("Integer modulo by zero error.");
+                }
+                //Integer modulo overflow happens in only one case, when INT_MIN / -1, because of the 32-bit integer system
+                else if (l.intValue == numeric_limits<int>::min() && r.intValue == -1) {
+                    const_cast<BinaryOperation*>(this)->raiseRuntimeException("Integer overflow on modulo (INT_MIN / -1).");
                 }
                 break;
             }
@@ -845,8 +856,7 @@ public:
                 }
                 break;
             }
-            default: // OpType::DIV
-
+            case OpType::DIV:
                 if (r.floatValue == 0.0f) {
                     const_cast<BinaryOperation*>(this)->raiseRuntimeException("Floating point division by zero error.");
                 }
@@ -856,6 +866,12 @@ public:
                     if (result > numeric_limits<float>::max() || result < -numeric_limits<float>::max()) {
                         const_cast<BinaryOperation*>(this)->raiseRuntimeException("Floating point overflow on division.");
                     }
+                }
+                break;
+
+            default: // OpType::MODULO
+                if (r.floatValue == 0.0f) {  //Floating point modulo by zero can cause underfined behaviour
+                    const_cast<BinaryOperation*>(this)->raiseRuntimeException("Floating point modulo by zero error.");
                 }
                 break;
             }
@@ -909,6 +925,13 @@ public:
                 floatRes = l.floatValue * r.floatValue;
             }
             break;
+        default:
+            if (l.type == DataType::Int) {
+                intRes = l.intValue % r.intValue;
+            }
+            else {
+                floatRes = fmodf(l.floatValue, r.floatValue);
+            }
         }
         return Numeric(resType, intRes, floatRes);
     }
@@ -963,9 +986,14 @@ public:
     }
 
     void execute() override {
+        StringLiteral String;
+        string tokenVal;
         for (const auto& token : outputValues) {
-            //for (TokenInstance token: outputValues) {
-                //cout << "valid";
+            tokenVal = token.lexeme;
+            if (String.validString(tokenVal)) { // for strings remove double quotes
+                cout << tokenVal.substr(1, tokenVal.length() - 2);
+                continue;
+            }
             cout << getValue(token);
         }
         cout << endl;
@@ -981,7 +1009,7 @@ private:
     bool needToEvaluate = true;
 
     int getPrecedence(OpType op) {
-        if (op == OpType::MULTIPLY || op == OpType::DIV) {
+        if (op == OpType::MULTIPLY || op == OpType::DIV || op == OpType::MODULO) {
             return 2;
         }
         else if (op == OpType::ADD || op == OpType::SUB) {
@@ -999,12 +1027,13 @@ private:
         case Token::SUB: return OpType::SUB;
         case Token::DIV: return OpType::DIV;
         case Token::MULTIPLY: return OpType::MULTIPLY;
+        case Token::MODULO: return OpType::MODULO;
         default: return OpType::Other;
         }
     }
     //Helper: get operand values
     bool isOperand(TokenInstance token) {
-        return token.type == Token::ADD || token.type == Token::SUB || token.type == Token::MULTIPLY || token.type == Token::DIV;
+        return token.type == Token::ADD || token.type == Token::SUB || token.type == Token::MULTIPLY || token.type == Token::DIV || token.type == Token::MODULO;
     }
 
     //Helper: get value of variable/lexeme
@@ -1017,7 +1046,7 @@ private:
         //assume type = Token::Variable
         DataType type = VariablesStack.getType(token.lexeme);
         if (type == DataType::Int) {
-            cout << "The variable " + token.lexeme + " has a value of " << VariablesStack.getIntegerVariable(token.lexeme) << endl; // debugging output statement
+            //cout << "The variable " + token.lexeme + " has a value of " << VariablesStack.getIntegerVariable(token.lexeme) << endl; // debugging output statement
             return VariablesStack.getIntegerVariable(token.lexeme);
         }
 
@@ -1032,7 +1061,7 @@ private:
         }
         DataType type = VariablesStack.getType(token.lexeme);
         if (type == DataType::Float) {
-            cout << "The variable " + token.lexeme + " has a value of " << VariablesStack.getFloatVariable(token.lexeme) << endl; // debugging output statement
+            //cout << "The variable " + token.lexeme + " has a value of " << VariablesStack.getFloatVariable(token.lexeme) << endl; // debugging output statement
             return VariablesStack.getFloatVariable(token.lexeme);
         }
         raiseRuntimeException("Type mismatch for token, " + token.lexeme + ". A floating point variable was expected." + " Instead recieved variable of type " + VariablesStack.getTypeName(type) + ". ");
@@ -1086,7 +1115,7 @@ private:
                     exprStack.push(new Literal(val));
                 }
             }
-            else if (token.type == Token::ADD || token.type == Token::SUB || token.type == Token::MULTIPLY || token.type == Token::DIV) {
+            else if (isOperand(token)) {
                 if (exprStack.size() < 2) return nullptr; // ADD DIVISION BY ZERO AND OVERLY LARGE NUMBER ERROR CHECKING
                 Expression* right = exprStack.top();
                 exprStack.pop();
@@ -1142,7 +1171,7 @@ private:
             output.push_back(opStack.top());
             opStack.pop();
         }
-        printPostfix(output); // debugging output statement
+        //printPostfix(output); // debugging output statement
         return output;
     }
 
@@ -1161,7 +1190,7 @@ private:
                 val = getValue(token);
                 exprStack.push(new Literal(val));
             }
-            else if (token.type == Token::ADD || token.type == Token::SUB || token.type == Token::MULTIPLY || token.type == Token::DIV) {
+            else if (isOperand(token)) {
                 if (exprStack.size() < 2) return nullptr; // ADD DIVISION BY ZERO AND OVERLY LARGE NUMBER ERROR CHECKING
                 Expression* right = exprStack.top();
                 exprStack.pop();
@@ -1258,11 +1287,11 @@ private:
                 }
                 else {
                     currentString = VariablesStack.getStringVariable(t.lexeme);
-                    cout << "The variable " + t.lexeme + " has a value of " << currentString << endl; // debugging output statement
+                    //cout << "The variable " + t.lexeme + " has a value of " << currentString << endl; // debugging output statement
                 }
             }
 
-            else if (t.type == Token::DIV || t.type == Token::MULTIPLY || t.type == Token::SUB) {
+            else if (t.type == Token::DIV || t.type == Token::MULTIPLY || t.type == Token::SUB || t.type == Token::MODULO) {
                 validExpr = false;
                 msg = "The operator, " + t.lexeme + ", was not expected in a string expression.";
             }
@@ -1331,7 +1360,7 @@ public:
         char charRes = ' ';
         string boolRes = "FALSE";
 
-        cout << "For " + lhsVarName + " the need to evaluate is " << needToEvaluate << "." << endl;
+        //cout << "For " + lhsVarName + " the need to evaluate is " << needToEvaluate << "." << endl; // debugging output statement
         if (!needToEvaluate) {
             shorthandAssignment();
         }
@@ -1487,8 +1516,11 @@ public:
         this->linkingStatements = linkingStatements;
     }
     bool evaluateConditionalStatement() {
+        if (conditionals.empty()) {
+            Exception ex(ExceptionType::Runtime, "No conditions found in conditional statement.");
+            return false;
+        }
         bool result = conditionals[0].evaluateCondition();
-
         if (this->conditionals.size() == 1) {
             return result;
         }
@@ -1571,8 +1603,11 @@ private:
     void executeBranches(BranchNode* currentBranchNode) {
         bool finished = false;
         bool res = false;
-        while (!finished) {
+        while (!finished && currentBranchNode != nullptr) {
             Branch* branch = currentBranchNode->current;
+            if (!branch) {
+                return; // Defensive skip for malformed branches
+            }
             BranchNode* nestedNode = currentBranchNode->nested;
             if (currentBranchNode->isElseBranch == false) {
                 res = branch->evaluateCondition();
@@ -1581,24 +1616,15 @@ private:
                         executeBranches(nestedNode);
                     }
                     branch->executeStatements();
+                    finished = true; // <-- Stop after first match!
                 }
             }
-            else {
-                finished = true;
-                res = branch->evaluateCondition();
-                if (res) {
-                    branch->executeStatements();
-                }
-            }
-
-            if (currentBranchNode->nextBranch == nullptr) {
+            else { // for an ELSE branch always execute conditions
+                branch->executeStatements();
                 finished = true;
             }
-            else {
-                currentBranchNode = currentBranchNode->nextBranch;
-            }
+            currentBranchNode = currentBranchNode->nextBranch;
         }
-
     }
 
 public:
@@ -1662,24 +1688,26 @@ private:
     TokenInstance startValue = { Token::Literal, "0" };
     TokenInstance endValue = { Token::Literal, "0" };
     vector<Statement*> statements;
+    int start = 0;
     int numRepetitions = 0;
     int repetitionCount = 0;
+    string incrementVariable = "";
 
-    int getValue(string val) {
-        int value = 0;
+    int getValue(TokenInstance val) {
         Integer Int;
-        if (Int.validInt(val)) {
-            value = Int.stringToInt(val);
+        if (Int.validInt(val.lexeme)) {
+            return Int.stringToInt(val.lexeme);
         }
-        else {
-            raiseRuntimeException("The value, " + val + " is not a valid integer. An integer value was expected.");
+        else if (val.type == Token::Variable) {
+            return VariablesStack.getIntegerVariable(val.lexeme);
         }
-        return value;
+        raiseRuntimeException("The value, " + val.lexeme + " is not a valid integer or integer variable. An integer value was expected.");
+        return 0;
     }
 
     void getRepetitions() {
-        int start = getValue(startValue.lexeme);
-        int end = getValue(endValue.lexeme);
+        start = getValue(startValue);
+        int end = getValue(endValue);
         if (start > end) {
             this->numRepetitions = start - end + 1;
         }
@@ -1698,14 +1726,21 @@ private:
         }
     }
 
+    void incrementVariableValue() {
+        string val = std::to_string(start);
+        VariablesStack.updateVariableValue(incrementVariable, val);
+        start++; //increment start by 1
+    }
+
 public:
 
-    ForLoop(vector<Statement*> statements, TokenInstance start, TokenInstance end) {
+    ForLoop(vector<Statement*> statements, string incrementVariable, TokenInstance start, TokenInstance end) {
         this->statements = statements;
         this->startValue = start;
         this->endValue = end;
         this->numRepetitions = 0;
         this->repetitionCount = 0;
+        this->incrementVariable = incrementVariable;
     }
 
     ~ForLoop() override {
@@ -1717,12 +1752,14 @@ public:
         getRepetitions();
         int maxValue = 32768;
         while (repetitionCount <= numRepetitions) {
+            incrementVariableValue(); //increasing the value of the incrementer variable in the stack with each repetition
             executeStatements();
             repetitionCount++;
             if (repetitionCount >= maxValue) {
                 raiseRuntimeException("Maximum number of repetitions exceeded. You may have created an infinite loop here.");
                 break;
             }
+            //cout << "repetition: " << repetitionCount << endl; // debugging output statement
         }
     }
 };
@@ -1785,18 +1822,22 @@ public:
             fileWriter.close();
         }
         catch (const std::ofstream::failure&) {
-            cout << "An error occurred when writing to the file" << endl;
+            cerr << "An error occurred when writing to the file" << endl;
         }
+    }
+
+    bool isEOF() {
+        return fileReader.eof();
     }
 
     bool nextLine() {
         //updates the current line and line number
-        cout << "[nextLine] is_open: " << fileReader.is_open() << ", good: " << fileReader.good() << endl;// debugging output statement
+        //cout << "[nextLine] is_open: " << fileReader.is_open() << ", good: " << fileReader.good() << endl;// debugging output statement
         if (getline(fileReader, currentLine)) {
             lineNumber++;
             return true;
         }
-        cout << "[nextLine] getline failed!" << endl; // debugging output statement
+        //cout << "[nextLine] getline failed!" << endl; // debugging output statement
         return false;
     }
 
@@ -1867,6 +1908,7 @@ public:
             lexer.setLine(currentLine);
             tokens = lexer.tokenizeLine();
         }
+        //printTokens(tokens); //debugging output statement
         return tokens;
     }
 
@@ -1936,6 +1978,9 @@ public:
             break;
         case Token::MULTIPLY:
             tokenStr = "MULTIPLY";
+            break;
+        case Token::MODULO:
+            tokenStr = "MODULO";
             break;
         case Token::OpenBrace:
             tokenStr = "OpenBrace";
@@ -2045,8 +2090,12 @@ public:
         return blankLineSkips > maxBlankLineSkips;
     }
 
-    void checkFinalLine() {
+    void checkFinalLine() { //used ONLY in testing
         this->isFinalLine = !interpreter.notFinalLine();
+    }
+
+    void isLineFinal() { // used in solution
+        this->isFinalLine = sourceReader.isEOF();
     }
 
     void parseExpression() {
@@ -2160,6 +2209,9 @@ public:
         case Token::MULTIPLY:
             op = OpType::MULTIPLY;
             break;
+        case Token::MODULO:
+            op = OpType::MODULO;
+            break;
         default:
             raiseException(ExceptionType::Lexical, "Invalid arithmetic operand.");
             break;
@@ -2209,6 +2261,9 @@ public:
         case Token::MULTIPLY:
             op = OpType::MULTIPLY;
             break;
+        case Token::MODULO:
+            op = OpType::MODULO;
+            break;
         default:
             raiseException("Invalid arithmetic operator.");
         }
@@ -2216,7 +2271,7 @@ public:
     }
 
     bool isOperand(Token t) {
-        return t == Token::ADD || t == Token::SUB || t == Token::DIV || t == Token::MULTIPLY;
+        return t == Token::ADD || t == Token::SUB || t == Token::DIV || t == Token::MULTIPLY || t == Token::MODULO;
     }
 
     bool isVariableORValue(Token type) {
@@ -2310,8 +2365,8 @@ public:
     }
 
     vector<Condition> getConditions(vector<TokenInstance> tokens) {
-        cout << "getConditions: tokens = ";//debugging output statement
-        interpreter.printLexemes(tokens); //debugging output statement
+        //cout << "getConditions: tokens = ";//debugging output statement
+        //interpreter.printLexemes(tokens); //debugging output statement
         vector<Condition> conditions;
         size_t i = 0;
         while (i + 2 < tokens.size()) {
@@ -2341,7 +2396,7 @@ public:
     }
 
     bool isOperator(TokenInstance t) {
-        return t.type == Token::ADD || t.type == Token::SUB || t.type == Token::MULTIPLY || t.type == Token::DIV;
+        return t.type == Token::ADD || t.type == Token::SUB || t.type == Token::MULTIPLY || t.type == Token::DIV || t.type == Token::MODULO;
     }
 
     string getBranchName(Token t) {
@@ -2361,7 +2416,7 @@ public:
         vector<TokenInstance> conditionLinkers;
         size_t i = 3;
         while (i < tokens.size()) {
-            cout << "Checking for linker at i=" << i << ": [" << tokens[i].lexeme << "]" << endl; //debugging output statement
+            //cout << "Checking for linker at i=" << i << ": [" << tokens[i].lexeme << "]" << endl; //debugging output statement
             if (isConditionLinker(tokens[i])) {
                 conditionLinkers.push_back(tokens[i]);
                 i += 4; // Skip linker and next condition (3 tokens)
@@ -2413,13 +2468,14 @@ public:
     }
 
     Branch* parseWHILEBranch(const vector<TokenInstance>& headerTokens) {
-        checkFinalLine();
+        //checkFinalLine();
+        isLineFinal();
         if (tokens.empty() && isFinalLine) {
             return nullptr;
         }
 
-        cout << "parseWHILEBranch: headerTokens = ";
-        interpreter.printLexemes(headerTokens);
+        //cout << "parseWHILEBranch: headerTokens = ";
+        //interpreter.printLexemes(headerTokens);
         ConditionalStatement cond;
         size_t start = 1;
         size_t end = headerTokens.size();
@@ -2432,14 +2488,15 @@ public:
         // Advance to first line of the loop body
         //generateNewTokens();
         advanceTokens();
-        checkFinalLine();
+        //checkFinalLine();
+        isLineFinal();
 
         resetLineSkips();
         while (!done && !isFinalLine && validSyntax && !maxSkipsReached()) {
             if (tokens.empty()) {
                 //generateNewTokens();
                 advanceTokens();
-                checkFinalLine();
+                isLineFinal();
                 recordLineSkip();
                 //check for final line if an empty line has been found to prevent an infinite loop from occurring
                 if (tokens.empty()) {
@@ -2481,11 +2538,8 @@ public:
                 //generateNewTokens();
                 advanceTokens();
             }
-            cout << "Printing next line: ";
-            interpreter.printLexemes(tokens);
-            cout << "which is tokenized to become: ";
-            interpreter.printTokens(tokens);
-            checkFinalLine();
+            //checkFinalLine();
+            isLineFinal();
         }
 
         if (!done) {
@@ -2553,7 +2607,8 @@ public:
                 //generateNewTokens();
                 advanceTokens();
             }
-            checkFinalLine();
+            //checkFinalLine();
+            isLineFinal();
         }
 
         return new Branch(cond, statements);
@@ -2570,6 +2625,10 @@ public:
         node->isElseBranch = isElse;
         node->current = parseIFBranch(isElse, headerTokens, node);
 
+        if (!node->current) { //defensive check for nullptr
+            delete node;
+            return nullptr;
+        }
         // Now look ahead for ELSE IF, ELSE, or END IF
         BranchNode* lastNode = node;
         bool done = false;
@@ -2598,7 +2657,8 @@ public:
                 //generateNewTokens();
                 advanceTokens();
             }
-            checkFinalLine();
+            //checkFinalLine();
+            isLineFinal();
         }
 
         if (!done && isFinalLine) {
@@ -2651,9 +2711,11 @@ public:
         vector<TokenInstance>headerTokens = tokens;
 
         vector<TokenInstance> startEndTokens = parseForStatement(headerTokens);
-        if (startEndTokens.size() == 2) {
+        string incrementer = ""; // This is the variable which the FOR loop increments each time
+        if (startEndTokens.size() == 2) { //If FOR statement valid
             startValue = startEndTokens[0];
             endValue = startEndTokens[1];
+            incrementer = headerTokens[1].lexeme;
         }
         //generateNewTokens();
         advanceTokens();
@@ -2662,13 +2724,15 @@ public:
         Token t = Token::Literal;
 
         while (!isFinalLine && !done && validSyntax && !maxSkipsReached()) {
+            //interpreter.printTokens(tokens); //debugging output statement
             if (tokens.empty()) {
                 //generateNewTokens();
                 advanceTokens();
                 if (tokens.empty()) continue;
             }
             t = tokens[0].type;
-            checkFinalLine();
+            isLineFinal();
+            //checkFinalLine();
             if (t == Token::FOR) {
                 ForLoop* forLoop = parseForLoop();
                 statements.push_back(forLoop);
@@ -2693,11 +2757,12 @@ public:
             raiseException("Missing a NEXT statement for the above FOR loop.");
             return nullptr;
         }
-        return new ForLoop(statements, startValue, endValue);
+        return new ForLoop(statements, incrementer, startValue, endValue);
     }
 
     Branch* parseWhileLoop() {
-        checkFinalLine(); //defensive guard to prevent infinite recursion
+        //checkFinalLine(); 
+        isLineFinal(); //defensive guard to prevent infinite recursion
         if (tokens.empty() && isFinalLine) {
             return nullptr;
         }
@@ -3084,7 +3149,7 @@ public:
 
         // Parse all lines/statements, not just the first
         while (p.syntaxValid() && !tokens.empty() && interpreter.isValidCode()) {
-            interpreter.printTokens(tokens);
+            //interpreter.printTokens(tokens);
             p.parseExpression();
             if (p.syntaxValid()) {
                 Statement* statement = p.getExecutableStatement();
@@ -3852,7 +3917,7 @@ string getFileName(string msg) {
 
 void runInterpreter() {
     //Runs the code for the entire solution
-    string inputFileName = getFileName("Enter the name of the source code txt file. ");
+    string inputFileName = "MyProgram.txt";//getFileName("Enter the name of the source code txt file. ");
     string outputFileName = "MyOutput.txt";//getFileName("Enter the name of the txt file to which you would like to display any outputs. ");
     sourceReader.alterFileNames(inputFileName, outputFileName);
 
@@ -3867,7 +3932,7 @@ void runInterpreter() {
 
     // Parse all lines/statements, not just the first
     while (parser.syntaxValid() && !tokens.empty() && interpreter.isValidCode()) {
-        interpreter.printTokens(tokens);
+        //interpreter.printTokens(tokens);
         parser.parseExpression();
         if (parser.syntaxValid()) {
             Statement* statement = parser.getExecutableStatement();
@@ -3875,7 +3940,7 @@ void runInterpreter() {
                 statement->execute();
             }
             delete statement;
-            tokens = interpreter.getNewTokens();
+            tokens = interpreter.advanceTokens();
             parser.setNewTokens(tokens);
         }
         else {
