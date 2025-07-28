@@ -604,20 +604,26 @@ public:
         while (i < n) {
             // Skip spaces
             while (i < n && isspace(line[i])) i++;
-            //if (i >= n) break;
 
             // Handle quoted strings
-            if (line[i] == '"') {
-                size_t start = i++;
-                while (i < n && line[i] != '"') i++;
-                if (i < n) i++; // Include closing quote
+            if (i < n && line[i] == '"') {
+                size_t start = i;
+                i++; // move past the opening quote
+                while (i < n && i < line.length()) {
+                    if (i < n && line[i] == '"') {
+                        i++; // move past the closing quote
+                        break;
+                    }
+                    i++;
+                }
                 lexemes.push_back(line.substr(start, i - start));
             }
             // Handle quoted characters
-            else if (line[i] == '\'') {
-                size_t start = i++;
+            else if (i < n && line[i] == '\'') {
+                size_t start = i;
+                i++; // move past the opening quote
                 while (i < n && line[i] != '\'') i++;
-                i += 1;
+                if (i < n && line[i] == '\'') i++; // move past the closing quote
                 lexemes.push_back(line.substr(start, i - start));
             }
             // Handle multi-char operators
@@ -628,12 +634,12 @@ public:
             // Handle numbers (including negative and decimal)
             else if ((line[i] == '-' && i + 1 < n && isdigit(line[i + 1])) || isdigit(line[i])) {
                 size_t start = i;
-                if (line[i] == '-') i++; // skip minus
+                if (line[i] == '-') i++;
                 while (i < n && (isdigit(line[i]) || line[i] == '.')) i++;
                 lexemes.push_back(line.substr(start, i - start));
             }
             // Handle single-char tokens (operators, punctuation)
-            else if (ispunct(line[i])) {
+            else if (i < n && ispunct(line[i])) {
                 lexemes.push_back(string(1, line[i]));
                 i++;
             }
@@ -2334,7 +2340,7 @@ public:
             valid = false;
         }*/
         //error checking: expected Literal|Variable
-        if (expectedValue) {
+        if (output->numVariables() == 0) {
             valid = false;
         }
 
@@ -3916,7 +3922,7 @@ string getFileName(string msg) {
 
 void runInterpreter() {
     //Runs the code for the entire solution
-    string inputFileName = "MyProgram.txt";//getFileName("Enter the name of the source code txt file. ");
+    string inputFileName = getFileName("Enter the name of the source code txt file. ");
     string outputFileName = "MyOutput.txt";//getFileName("Enter the name of the txt file to which you would like to display any outputs. ");
     sourceReader.alterFileNames(inputFileName, outputFileName);
 
@@ -3924,13 +3930,15 @@ void runInterpreter() {
     vector<TokenInstance> tokens;
 
     interpreter.resetLineNum();
-    tokens = interpreter.advanceTokens();
+    while (tokens.empty()) {
+        tokens = interpreter.advanceTokens();
+        parser.setNewTokens(tokens);
+    }
     //cout << "testInterpreter: first tokens = "; //debugging output statement
     //interpreter.printLexemes(tokens); //debugging output statement
-    parser.setNewTokens(tokens);
 
     // Parse all lines/statements, not just the first
-    while (parser.syntaxValid() && !tokens.empty() && interpreter.isValidCode()) {
+    while (parser.syntaxValid() && interpreter.isValidCode()) {
         //interpreter.printTokens(tokens);
         parser.parseExpression();
         if (parser.syntaxValid()) {
@@ -3939,12 +3947,16 @@ void runInterpreter() {
                 statement->execute();
             }
             delete statement;
+
             tokens = interpreter.advanceTokens();
             parser.setNewTokens(tokens);
+            while (tokens.empty()) {
+                tokens = interpreter.advanceTokens();
+                parser.setNewTokens(tokens);
+            }
         }
-        else {
-            break;
-        }
+
+
     }
 }
 

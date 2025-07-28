@@ -1,0 +1,34 @@
+SET output AS string
+output = "<output>"
+DISPLAY "Output Pattern:" + output
+
+
+SET i AS int
+SET count AS int
+FOR i = 1 TO 10
+    count = count + 1
+NEXT
+DISPLAY "Count Pattern (unguarded): count = " + count
+
+FOR i = 1 TO 20
+	IF count = 11 THEN
+    count = count + 1
+ END IF
+NEXT
+DISPLAY "Count Pattern (guarded): count = " + count
+
+SET min AS float
+SET val AS float
+val = 10.0
+IF min < val THEN
+ min = val
+END IF
+DISPLAY "Min Pattern IF-statement   : min = " + min
+
+SET max AS float
+val = 100
+
+IF val > max THEN
+ max = val
+END IF
+DISPLAY "Min Pattern IF-statement   : max = " + max
