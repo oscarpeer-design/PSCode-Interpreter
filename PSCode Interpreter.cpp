@@ -706,6 +706,8 @@ public:
 
 };
 
+Lexer lexer; //forward declaration
+
 class Statement { //Every statement inherits from this
     //TDLR
 public:
@@ -1470,7 +1472,6 @@ public:
         string rhsValue = getValue(this->rhs);
         //get integer and float values for lhs and rhs
 
-        bool valid = false;
         switch (this->op) {
         case EqualityOperator::EQ:
             result = true ? lhsValue == rhsValue : false;
@@ -1485,12 +1486,12 @@ public:
             if (I.validInt(lhsValue) && I.validInt(rhsValue)) {
                 int lhs_IntVal = I.stringToInt(lhsValue);
                 int rhs_IntVal = I.stringToInt(rhsValue);
-                valid = this->evaluateConditions_withIntegers(lhs_IntVal, rhs_IntVal);
+                result = this->evaluateConditions_withIntegers(lhs_IntVal, rhs_IntVal);
             }
             else if (F.validFloat(lhsValue) && F.validFloat(rhsValue)) {
                 float lhs_FloatVal = F.stringToFloat(lhsValue);
                 float rhs_FloatVal = F.stringToFloat(rhsValue);
-                valid = this->evaluateConditions_withFloats(lhs_FloatVal, rhs_FloatVal);
+                result = this->evaluateConditions_withFloats(lhs_FloatVal, rhs_FloatVal);
             }
             else {
                 raiseException("Improper values in above condition.");
@@ -1889,7 +1890,6 @@ public:
 
     vector<TokenInstance> getNewTokens() { // ONLY USED IN TESTING
         vector<TokenInstance> tokens;
-        Lexer lexer;
         if (this->currentLineNum < this->lines.size()) {
             //cout << "Tokenizing line " << currentLineNum << ": "; // debugging output statement
             lexer.setLine(this->lines[currentLineNum]);
@@ -1902,7 +1902,6 @@ public:
 
     vector<TokenInstance> advanceTokens() { //USED IN THE REAL SOLUTION
         vector<TokenInstance> tokens;
-        Lexer lexer;
         if (sourceReader.nextLine()) {
             currentLine = sourceReader.getLine();
             lexer.setLine(currentLine);
