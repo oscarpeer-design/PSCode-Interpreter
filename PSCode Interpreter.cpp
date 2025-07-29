@@ -440,6 +440,106 @@ public:
 
 };
 
+class SourceReader {
+private:
+    string inputFilename = "";
+    string outputFilename = "";
+    int lineNumber = 0;
+    ifstream fileReader;
+    string currentLine;
+    int outputCalls = 0;
+
+public:
+    SourceReader() {}
+
+    void alterFileNames(string inputFileName, string outputFileName) {
+        this->inputFilename = inputFileName;
+        this->outputFilename = outputFileName;
+
+        if (fileReader.is_open()) {
+            fileReader.close();
+        }
+
+        fileReader.clear(); // reset flags
+        fileReader.open(this->inputFilename);
+
+        if (!fileReader.is_open()) {
+            cerr << "ERROR: Could not open file: " << this->inputFilename << endl;
+
+            // Check file existence (optional)
+            ifstream test(this->inputFilename);
+            if (!test.good()) {
+                cerr << "File does not exist or is not accessible." << endl;
+            }
+            else {
+                cerr << "File exists but failed to open — check permissions." << endl;
+            }
+        }
+        else {
+            cout << "File opened successfully: " << this->inputFilename << endl; // output statement
+        }
+
+        lineNumber = 0; // reset line count
+    }
+
+    ~SourceReader() {
+        fileReader.close();
+    }
+
+    void clearOutputFile() { //clear previous data if it is present 
+        ofstream fileWriter;
+        fileWriter.open(outputFilename);
+        fileWriter.exceptions(std::ofstream::failbit | std::ofstream::badbit); // this enables exceptions on bad file writing
+        fileWriter << "";
+        fileWriter.close();
+    }
+
+    void writeOutput(string outputLine) {
+        ofstream fileWriter;
+        try {
+            if (outputCalls == 0) { // check if it is the first time the file has been written to
+                clearOutputFile(); //if so, clear the previous output data
+            }
+            outputCalls++;
+            //write new data
+            ofstream fileWriter(outputFilename, ios::app); //open in append
+            if (!fileWriter) {
+                cerr << "Failed to open the file " + outputFilename + " to write new data.";
+            }
+            fileWriter << outputLine << endl;
+            fileWriter.close();
+        }
+        catch (const std::ofstream::failure&) {
+            cerr << "An error occurred when writing to the file" << endl;
+        }
+    }
+
+    bool isEOF() {
+        return fileReader.eof();
+    }
+
+    bool nextLine() {
+        //updates the current line and line number
+        //cout << "[nextLine] is_open: " << fileReader.is_open() << ", good: " << fileReader.good() << endl;// debugging output statement
+        if (getline(fileReader, currentLine)) {
+            lineNumber++;
+            return true;
+        }
+        //cout << "[nextLine] getline failed!" << endl; // debugging output statement
+        return false;
+    }
+
+    string getLine() {
+        return currentLine;
+    }
+
+    int getLineNumber() {
+        return lineNumber;
+    }
+};
+
+SourceReader sourceReader;//Forward declaration
+
 class Lexer {
 private:
     string line;
@@ -996,15 +1096,17 @@ public:
     void execute() override {
         StringLiteral String;
         string tokenVal;
+        string output;
         for (const auto& token : outputValues) {
             tokenVal = token.lexeme;
             if (String.validString(tokenVal)) { // for strings remove double quotes
-                cout << tokenVal.substr(1, tokenVal.length() - 2);
+                output = output + tokenVal.substr(1, tokenVal.length() - 2);
                 continue;
             }
-            cout << getValue(token);
+            output = output + getValue(token);
         }
-        cout << endl;
+        output = output + "\n";
+        sourceReader.writeOutput(output);
     }
 };
 
@@ -1277,7 +1379,6 @@ private:
         TokenInstance t;
         DataType type = DataType::String;
         string currentString = "";
-        stringstream stream;
         StringLiteral String;
 
         while (idx < adjustedTokens.size() && validExpr) {
@@ -1773,91 +1874,6 @@ public:
 
 class Interpreter; // Forward declaration
 extern Interpreter interpreter; // Declare the global variable
-
-class SourceReader {
-private:
-    string inputFilename = "";
-    string outputFilename = "";
-    int lineNumber = 0;
-    ifstream fileReader;
-    string currentLine;
-
-public:
-    SourceReader() {
-
-    }
-    void alterFileNames(string inputFileName, string outputFileName) {
-        this->inputFilename = inputFileName;
-        this->outputFilename = outputFileName;
-
-        if (fileReader.is_open()) {
-            fileReader.close();
-        }
-
-        fileReader.clear(); // reset flags
-        fileReader.open(this->inputFilename);
-
-        if (!fileReader.is_open()) {
-            cerr << "ERROR: Could not open file: " << this->inputFilename << endl;
-
-            // Check file existence (optional)
-            ifstream test(this->inputFilename);
-            if (!test.good()) {
-                cerr << "File does not exist or is not accessible." << endl;
-            }
-            else {
-                cerr << "File exists but failed to open — check permissions." << endl;
-            }
-        }
-        else {
-            cout << "File opened successfully: " << this->inputFilename << endl; // output statement
-        }
-
-        lineNumber = 0; // reset line count
-    }
-
-    ~SourceReader() {
-        fileReader.close();
-    }
-
-    void writeOutput(string outputLine) {
-        ofstream fileWriter;
-        try {
-            fileWriter.open(outputFilename);
-            fileWriter.exceptions(std::ofstream::failbit | std::ofstream::badbit); // this enables exceptions on bad file reading
-            fileWriter << outputLine << endl;
-            fileWriter.close();
-        }
-        catch (const std::ofstream::failure&) {
-            cerr << "An error occurred when writing to the file" << endl;
-        }
-    }
-
-    bool isEOF() {
-        return fileReader.eof();
-    }
-
-    bool nextLine() {
-        //updates the current line and line number
-        //cout << "[nextLine] is_open: " << fileReader.is_open() << ", good: " << fileReader.good() << endl;// debugging output statement
-        if (getline(fileReader, currentLine)) {
-            lineNumber++;
-            return true;
-        }
-        //cout << "[nextLine] getline failed!" << endl; // debugging output statement
-        return false;
-    }
-
-    string getLine() {
-        return currentLine;
-    }
-
-    int getLineNumber() {
-        return lineNumber;
-    }
-};
-
-SourceReader sourceReader;//Forward declaration
 
 class Interpreter {
 
